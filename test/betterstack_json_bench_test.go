@@ -4,6 +4,7 @@ package acacia_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	acacia "github.com/humanjuan/acacia/v2"
 )
@@ -16,7 +17,15 @@ var testJSON = map[string]interface{}{
 }
 
 func Benchmark_structured(b *testing.B) {
-	lg, _ := acacia.Start("bench.log", b.TempDir(), acacia.Level.INFO, acacia.WithBufferSize(5_000_000), acacia.WithBatchSize(512*1024))
+	lg, _ := acacia.Start(
+		"bench.log",
+		b.TempDir(),
+		acacia.Level.INFO,
+		acacia.WithBufferSize(5_000_000),
+		acacia.WithBufferCap(256<<10),
+		acacia.WithDrainBurst(1024),
+		acacia.WithFlushInterval(10*time.Millisecond),
+	)
 	lg.StructuredJSON(true)
 	defer lg.Close()
 
@@ -27,7 +36,15 @@ func Benchmark_structured(b *testing.B) {
 }
 
 func Benchmark_structured_Parallel(b *testing.B) {
-	lg, _ := acacia.Start("bench.log", b.TempDir(), acacia.Level.INFO, acacia.WithBufferSize(5_000_000), acacia.WithBatchSize(512*1024))
+	lg, _ := acacia.Start(
+		"bench.log",
+		b.TempDir(),
+		acacia.Level.INFO,
+		acacia.WithBufferSize(5_000_000),
+		acacia.WithBufferCap(256<<10),
+		acacia.WithDrainBurst(1024),
+		acacia.WithFlushInterval(10*time.Millisecond),
+	)
 	lg.StructuredJSON(true)
 	defer lg.Close()
 
@@ -40,7 +57,15 @@ func Benchmark_structured_Parallel(b *testing.B) {
 }
 
 func Benchmark_structured_1KB(b *testing.B) {
-	lg, _ := acacia.Start("bench.log", b.TempDir(), acacia.Level.INFO, acacia.WithBufferSize(5_000_000), acacia.WithBatchSize(512*1024))
+	lg, _ := acacia.Start(
+		"bench.log",
+		b.TempDir(),
+		acacia.Level.INFO,
+		acacia.WithBufferSize(5_000_000),
+		acacia.WithBufferCap(256<<10),
+		acacia.WithDrainBurst(1024),
+		acacia.WithFlushInterval(10*time.Millisecond),
+	)
 	lg.StructuredJSON(true)
 	defer lg.Close()
 
@@ -53,7 +78,15 @@ func Benchmark_structured_1KB(b *testing.B) {
 }
 
 func Benchmark_structured_Parallel_1KB(b *testing.B) {
-	lg, _ := acacia.Start("bench.log", b.TempDir(), acacia.Level.INFO, acacia.WithBufferSize(5_000_000), acacia.WithBatchSize(512*1024))
+	lg, _ := acacia.Start(
+		"bench.log",
+		b.TempDir(),
+		acacia.Level.INFO,
+		acacia.WithBufferSize(5_000_000),
+		acacia.WithBufferCap(256<<10),
+		acacia.WithDrainBurst(1024),
+		acacia.WithFlushInterval(10*time.Millisecond),
+	)
 	lg.StructuredJSON(true)
 	defer lg.Close()
 
@@ -68,7 +101,15 @@ func Benchmark_structured_Parallel_1KB(b *testing.B) {
 }
 
 func Benchmark_structured_Parallel_Fields(b *testing.B) {
-	lg, _ := acacia.Start("bench.log", b.TempDir(), "INFO", acacia.WithBufferSize(5_000_000), acacia.WithBatchSize(512*1024))
+	lg, _ := acacia.Start(
+		"bench.log",
+		b.TempDir(),
+		"INFO",
+		acacia.WithBufferSize(5_000_000),
+		acacia.WithBufferCap(256<<10),
+		acacia.WithDrainBurst(1024),
+		acacia.WithFlushInterval(10*time.Millisecond),
+	)
 	lg.StructuredJSON(true)
 	defer lg.Close()
 

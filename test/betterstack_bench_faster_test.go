@@ -4,6 +4,7 @@ package acacia_test
 import (
 	"strings"
 	"testing"
+	"time"
 
 	acacia "github.com/humanjuan/acacia/v2"
 )
@@ -13,7 +14,15 @@ import (
 // -----------------------------------------------------------
 
 func Benchmark_byte(b *testing.B) {
-	lg, _ := acacia.Start("bench.log", b.TempDir(), acacia.Level.INFO, acacia.WithBufferSize(5_000_000), acacia.WithBatchSize(512*1024))
+	lg, _ := acacia.Start(
+		"bench.log",
+		b.TempDir(),
+		acacia.Level.INFO,
+		acacia.WithBufferSize(5_000_000),
+		acacia.WithBufferCap(256<<10),
+		acacia.WithDrainBurst(1024),
+		acacia.WithFlushInterval(10*time.Millisecond),
+	)
 	defer lg.Close()
 
 	byteMessage := []byte("The quick brown fox jumps over the lazy dog")
@@ -25,7 +34,14 @@ func Benchmark_byte(b *testing.B) {
 }
 
 func Benchmark_byte_Parallel(b *testing.B) {
-	lg, _ := acacia.Start("bench.log", b.TempDir(), acacia.Level.INFO, acacia.WithBufferSize(5_000_000), acacia.WithBatchSize(512*1024))
+	lg, _ := acacia.Start(
+		"bench.log",
+		b.TempDir(),
+		acacia.Level.INFO,
+		acacia.WithBufferSize(5_000_000),              // channel capacity (producers→queue)
+		acacia.WithBufferCap(256<<10),                 // writer’s internal buffers: 256 KB
+		acacia.WithDrainBurst(1024),                   // drain more per wake-up for better batching
+		acacia.WithFlushInterval(10*time.Millisecond)) // lower latency; increase for max throughput-only)
 	defer lg.Close()
 
 	byteMessage := []byte("The quick brown fox jumps over the lazy dog")
@@ -39,7 +55,14 @@ func Benchmark_byte_Parallel(b *testing.B) {
 }
 
 func Benchmark_byte_1KB(b *testing.B) {
-	lg, _ := acacia.Start("bench.log", b.TempDir(), acacia.Level.INFO, acacia.WithBufferSize(5_000_000), acacia.WithBatchSize(512*1024))
+	lg, _ := acacia.Start(
+		"bench.log",
+		b.TempDir(),
+		acacia.Level.INFO,
+		acacia.WithBufferSize(5_000_000),
+		acacia.WithBufferCap(256<<10),
+		acacia.WithDrainBurst(1024),
+		acacia.WithFlushInterval(10*time.Millisecond))
 	defer lg.Close()
 
 	msg := strings.Repeat("X", 1024)
@@ -52,7 +75,14 @@ func Benchmark_byte_1KB(b *testing.B) {
 }
 
 func Benchmark_byte_Parallel_1KB(b *testing.B) {
-	lg, _ := acacia.Start("bench.log", b.TempDir(), acacia.Level.INFO, acacia.WithBufferSize(5_000_000), acacia.WithBatchSize(512*1024))
+	lg, _ := acacia.Start(
+		"bench.log",
+		b.TempDir(),
+		acacia.Level.INFO,
+		acacia.WithBufferSize(5_000_000),
+		acacia.WithBufferCap(256<<10),
+		acacia.WithDrainBurst(1024),
+		acacia.WithFlushInterval(10*time.Millisecond))
 	defer lg.Close()
 
 	msg := strings.Repeat("X", 1024)
