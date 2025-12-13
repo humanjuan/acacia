@@ -1,14 +1,19 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"sync"
+	"time"
+
 	"github.com/humanjuan/acacia/v2"
 )
 
 func main() {
 	basicTest()
-	//stressTest()
-	//stressByteTest()
-	//stressJSONTest()
+	// stressTest()
+	// stressByteTest()
+	//  stressJSONTest()
 	// mixContentTest()
 }
 
@@ -28,9 +33,9 @@ func basicTest() {
 	lg.Critical("Simple log message without variables")
 	lg.Critical("Data: %v, Value: %v", data1, data2)
 	lg.Critical(1)
-	lg.Critical(1.0)
+	lg.Critical(1.2)
 	lg.Critical(true)
-	// lg.Critical("% X", []byte{1, 2, 3})
+	lg.Critical("% X", []byte{1, 2, 3})
 	lg.Critical(map[string]interface{}{})
 
 	lg.Info("This is a Critical message %d", 2023)
@@ -39,7 +44,7 @@ func basicTest() {
 	lg.Info(1)
 	lg.Info(1.0)
 	lg.Info(true)
-	// lg.Info("% X", []byte{1, 2, 3})
+	lg.Info("% X", []byte{1, 2, 3})
 	lg.Info(map[string]interface{}{})
 
 	lg.Warn("This is a Critical message %d", 2023)
@@ -48,7 +53,7 @@ func basicTest() {
 	lg.Warn(1)
 	lg.Warn(1.0)
 	lg.Warn(true)
-	// lg.Warn("% X", []byte{1, 2, 3})
+	lg.Warn("% X", []byte{1, 2, 3})
 	lg.Warn(map[string]interface{}{})
 
 	lg.Error("This is a Critical message %d", 2023)
@@ -57,7 +62,7 @@ func basicTest() {
 	lg.Error(1)
 	lg.Error(1.0)
 	lg.Error(true)
-	// lg.Error("% X", []byte{1, 2, 3})
+	lg.Error("% X", []byte{1, 2, 3})
 	lg.Error(map[string]interface{}{})
 
 	lg.Debug("This is a Critical message %d", 2023)
@@ -66,7 +71,7 @@ func basicTest() {
 	lg.Debug(1)
 	lg.Debug(1.0)
 	lg.Debug(true)
-	// lg.Debug("% X", []byte{1, 2, 3})
+	lg.Debug("% X", []byte{1, 2, 3})
 	lg.Debug(map[string]interface{}{})
 
 	// Optional rotation configuration (defaults are 40MB size, 4 backups)
@@ -75,7 +80,6 @@ func basicTest() {
 	// lg.Close()
 }
 
-/*
 func stressTest() {
 	lg, err := acacia.Start("acacia.log", "./examples", acacia.Level.INFO)
 	if err != nil {
@@ -122,7 +126,7 @@ func stressByteTest() {
 
 	lg.TimestampFormat(acacia.TS.Special)
 	const workers = 500
-	const messagesPerWorker = 20_000
+	const messagesPerWorker = 10_000
 
 	var wg sync.WaitGroup
 	wg.Add(workers)
@@ -232,4 +236,3 @@ func mixContentTest() {
 	//lg.Info(msg)
 
 }
-*/
