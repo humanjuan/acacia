@@ -6,7 +6,7 @@
 //                                                                                                                    //
 //  HumanJuan Acacia - High-performance concurrent logger with real file rotation                                     //
 //                                                                                                                    //
-//  Version: 2.2.0                                                                                                    //
+//  Version: 2.3.0                                                                                                    //
 //                                                                                                                    //
 //  MIT License                                                                                                       //
 //                                                                                                                    //
@@ -36,10 +36,10 @@ package acacia
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -47,10 +47,10 @@ import (
 )
 
 const (
-	version           = "2.2.0"
+	version           = "2.3.0"
 	DefaultBufferSize = 500_000
 	MinBufferSize     = 1_000
-	DefaultBatchSize  = 64 * 1024 // 64 kb
+	DefaultBatchSize  = 64 * 1024 // 64 KB (deprecated: use bufferCap)
 	flushInterval     = 100 * time.Millisecond
 	cacheInterval     = 100 * time.Millisecond
 	lastDayFormat     = "2006-01-02"
@@ -70,8 +70,10 @@ var (
 
 type config struct {
 	bufferSize int
-	batchSize  int
+	batchSize  int // Deprecated: prefer bufferCap for internal buffering capacity
 	flushEvery time.Duration
+	bufferCap  int
+	drainBurst int
 }
 
 type Option func(*config)
@@ -84,6 +86,7 @@ func WithBufferSize(number int) Option {
 	}
 }
 
+// WithBatchSize is deprecated: prefer WithBufferCap to size the internal writer buffers.
 func WithBatchSize(number int) Option {
 	return func(conf *config) {
 		if number > 1024 {
@@ -92,11 +95,30 @@ func WithBatchSize(number int) Option {
 	}
 }
 
-// WithFlushInterval permite configurar cada cuánto el writer dispara un flush periodico.
+// WithFlushInterval sets the periodic flush interval for the writer.
 func WithFlushInterval(d time.Duration) Option {
 	return func(conf *config) {
 		if d > 0 {
 			conf.flushEvery = d
+		}
+	}
+}
+
+// WithBufferCap sets the initial capacity (in bytes) for the internal writer buffers.
+// Use this to avoid re-allocations when logging large messages.
+func WithBufferCap(bytes int) Option {
+	return func(conf *config) {
+		if bytes > 0 {
+			conf.bufferCap = bytes
+		}
+	}
+}
+
+// WithDrainBurst sets how many events the writer drains opportunistically per wake-up.
+func WithDrainBurst(n int) Option {
+	return func(conf *config) {
+		if n > 0 {
+			conf.drainBurst = n
 		}
 	}
 }
@@ -165,7 +187,6 @@ type Log struct {
 	daily             bool
 	lastDay           string
 	file              atomic.Value
-	message           chan []byte
 	events            chan logEvent
 	wg                sync.WaitGroup
 	mtx               sync.Mutex
@@ -181,68 +202,114 @@ type Log struct {
 	dequeueSeq        uint64
 	control           chan controlReq
 	currentSize       int64
+	currentReq        controlReq
+	drainBurstLimit   int
 }
 
-// controlReq es un mensaje de control hacia el writer.
-// target indica el número de mensajes encolados que deben haber sido
-// consumidos (y flushados) antes de responder el ack.
+// controlReq is a control message for the writer goroutine.
+// target indicates the last enqueued sequence that must be processed
+// (and flushed) before acknowledging the request.
 type controlReq struct {
-	target uint64
-	ack    chan struct{}
+	target      uint64
+	ack         chan struct{}
+	setRotation *rotationConfig
+	setDaily    *bool
 }
 
-// logEvent representa un evento ligero que será formateado por la goroutine writer.
-// Evita construir []byte por mensaje en el productor para reducir allocs/op.
+type rotationConfig struct {
+	sizeMB int
+	backup int
+}
+
+// logEvent is a lightweight message enqueued by producers.
+// The writer goroutine performs the final formatting to minimize allocations.
 type logEvent struct {
 	level    string
 	msgStr   string
 	msgBytes []byte
-	kind     uint8 // 0 = string, 1 = bytes
+	kind     uint8 // 0 = string, 1 = bytes, 2 = preformatted JSON
+	seq      uint64
 }
 
 var (
-	smallPool = sync.Pool{New: func() interface{} { return make([]byte, 0, 512) }}
-	medPool   = sync.Pool{New: func() interface{} { return make([]byte, 0, 2048) }}
-	midPool   = sync.Pool{New: func() interface{} { return make([]byte, 0, 4096) }}
-	bigPool   = sync.Pool{New: func() interface{} { return make([]byte, 0, 8192) }}
+	pool512     = sync.Pool{New: func() interface{} { return make([]byte, 0, 512) }}
+	pool2k      = sync.Pool{New: func() interface{} { return make([]byte, 0, 2048) }}
+	pool4k      = sync.Pool{New: func() interface{} { return make([]byte, 0, 4096) }}
+	pool8k      = sync.Pool{New: func() interface{} { return make([]byte, 0, 8192) }}
+	jsonPool512 = sync.Pool{New: func() interface{} { return make([]byte, 0, 512) }}
+	jsonPool2K  = sync.Pool{New: func() interface{} { return make([]byte, 0, 2048) }}
+	jsonPool4K  = sync.Pool{New: func() interface{} { return make([]byte, 0, 4096) }}
+	jsonPool8K  = sync.Pool{New: func() interface{} { return make([]byte, 0, 8192) }}
 )
 
-// getBuf returns a small default buffer (legacy callers).
-func getBuf() []byte {
-	return smallPool.Get().([]byte)
-}
-
-// getBufCap returns a buffer with at least the requested capacity.
 func getBufCap(n int) []byte {
 	switch {
 	case n <= 512:
-		return smallPool.Get().([]byte)
+		return pool512.Get().([]byte)[:0]
 	case n <= 2048:
-		return medPool.Get().([]byte)
+		return pool2k.Get().([]byte)[:0]
 	case n <= 4096:
-		return midPool.Get().([]byte)
+		return pool4k.Get().([]byte)[:0]
+	case n <= 8192:
+		return pool8k.Get().([]byte)[:0]
 	default:
-		return bigPool.Get().([]byte)
+		return make([]byte, 0, n)
 	}
 }
 
-// putBuf returns the buffer to the appropriate pool based on capacity.
-func putBuf(b []byte) {
+// putBufCap returns the buffer to the appropriate pool based on capacity.
+func putBufCap(b []byte) {
 	c := cap(b)
 	switch {
 	case c <= 512:
-		smallPool.Put(b[:0])
+		pool512.Put(b[:0])
 	case c <= 2048:
-		medPool.Put(b[:0])
+		pool2k.Put(b[:0])
 	case c <= 4096:
-		midPool.Put(b[:0])
+		pool4k.Put(b[:0])
 	default:
-		bigPool.Put(b[:0])
+		pool8k.Put(b[:0])
+	}
+}
+
+// getJSONBufCap obtains a reusable []byte from the appropriate JSON pool
+func getJSONBufCap(n int) []byte {
+	switch {
+	case n <= 512:
+		return jsonPool512.Get().([]byte)
+	case n <= 2048:
+		return jsonPool2K.Get().([]byte)
+	case n <= 4096:
+		return jsonPool4K.Get().([]byte)
+	case n <= 8192:
+		return jsonPool8K.Get().([]byte)
+	default:
+		return make([]byte, 0, n)
+	}
+}
+
+// putJSONBuf returns a []byte to the appropriate JSON pool based on its capacity
+func putJSONBuf(b []byte) {
+	c := cap(b)
+	if c == 0 || c > 8192 {
+		return
+	}
+	b = b[:0]
+
+	switch {
+	case c <= 512:
+		jsonPool512.Put(b)
+	case c <= 2048:
+		jsonPool2K.Put(b)
+	case c <= 4096:
+		jsonPool4K.Put(b)
+	default:
+		jsonPool8K.Put(b)
 	}
 }
 
 ///////////////////////////////////////
-//       L O G   M E T H O D S       //
+//          LOG METHODS              //
 ///////////////////////////////////////
 
 func (_log *Log) StructuredJSON(state bool) {
@@ -259,49 +326,49 @@ func (_log *Log) logfString(level string, data interface{}, args ...interface{})
 	if !_log.shouldLog(level) {
 		return
 	}
+	seq := atomic.AddUint64(&_log.enqueueSeq, 1)
 
+	// Structured JSON: prebuild and enqueue as preformatted (kind=2)
 	if _log.structured {
 		var fields map[string]interface{}
-
 		if len(args) == 0 {
 			if f, ok := data.(map[string]interface{}); ok {
 				fields = f
 			}
 		}
-
 		if fields == nil {
 			msgStr := _log.formatMessageString(data, args...)
 			fields = map[string]interface{}{"msg": msgStr}
 		}
-
 		raw := _log.formatStructuredLog(level, fields)
-		atomic.AddUint64(&_log.enqueueSeq, 1)
-		_log.message <- raw
+		_log.events <- logEvent{level: level, msgBytes: raw, kind: 2, seq: seq}
 		return
 	}
-	// FAST: sin formato y sin '%'
+
+	// Simple logs: send raw payload and let the writer format
 	if len(args) == 0 {
-		if msgStr, ok := data.(string); ok {
-			if strings.IndexByte(msgStr, '%') == -1 {
-				atomic.AddUint64(&_log.enqueueSeq, 1)
-				_log.events <- logEvent{level: level, msgStr: msgStr, kind: 0}
-				return
-			}
+		switch v := data.(type) {
+		case string:
+			_log.events <- logEvent{level: level, msgStr: v, kind: 0, seq: seq}
+			return
+		case []byte:
+			_log.events <- logEvent{level: level, msgBytes: v, kind: 1, seq: seq}
+			return
 		}
 	}
 
+	// Formatted path or other types
 	msgStr := _log.formatMessageString(data, args...)
-	raw := _log.setFormatBytesFromString(msgStr, level)
-	atomic.AddUint64(&_log.enqueueSeq, 1)
-	_log.message <- raw
+	_log.events <- logEvent{level: level, msgStr: msgStr, kind: 0, seq: seq}
 }
 
 func (_log *Log) logfBytes(level string, msgBytes []byte) {
 	if !_log.shouldLog(level) {
 		return
 	}
-	atomic.AddUint64(&_log.enqueueSeq, 1)
-	_log.events <- logEvent{level: level, msgBytes: msgBytes, kind: 1}
+	seq := atomic.AddUint64(&_log.enqueueSeq, 1)
+	// Delegate final formatting to the writer
+	_log.events <- logEvent{level: level, msgBytes: msgBytes, kind: 1, seq: seq}
 }
 
 func (_log *Log) shouldLog(level string) bool {
@@ -364,8 +431,8 @@ func (_log *Log) Write(p []byte) (int, error) {
 	if !_log.shouldLog(Level.INFO) {
 		return len(p), nil
 	}
-	atomic.AddUint64(&_log.enqueueSeq, 1)
-	_log.events <- logEvent{level: Level.INFO, msgBytes: p, kind: 1}
+	seq := atomic.AddUint64(&_log.enqueueSeq, 1)
+	_log.events <- logEvent{level: Level.INFO, msgBytes: p, kind: 1, seq: seq}
 	return len(p), nil
 }
 
@@ -373,133 +440,139 @@ func (_log *Log) Rotation(sizeMB int, backup int) {
 	if backup < 1 {
 		backup = 1
 	}
-	_log.maxRotation = backup
-
-	if sizeMB <= 0 {
-		_log.maxSize = 0
-		return
+	ack := make(chan struct{})
+	req := controlReq{
+		setRotation: &rotationConfig{sizeMB: sizeMB, backup: backup},
+		ack:         ack,
 	}
-	_log.maxSize = int64(sizeMB) * 1024 * 1024
+	_log.control <- req
+	// Wait for ack to ensure the configuration is applied before returning
+	<-ack
 }
 
 func (_log *Log) DailyRotation(enabled bool) {
-	_log.mtx.Lock()
-	_log.daily = enabled
-	if enabled {
-		_log.lastDay = time.Now().Format(lastDayFormat)
-		_log.forceDailyRotate = true
+	ack := make(chan struct{})
+	req := controlReq{
+		setDaily: &enabled,
+		ack:      ack,
 	}
-	_log.mtx.Unlock()
+	_log.control <- req
+	// Wait for ack to ensure the configuration is applied before returning
+	<-ack
 }
 
-// app.log → app-2025-11-18.log
-// app.log.0 → app-2025-11-18.log.0
-// app.log.1 → app-2025-11-18.log.1
 func (_log *Log) rotateByDate(day string) error {
-	_log.mtx.Lock()
-	base := _log.getFile().Name()
-	dir, name := filepath.Dir(base), filepath.Base(base)
-	oldFile := _log.getFile()
-	maxRot := _log.maxRotation
-	_log.mtx.Unlock()
+	f := _log.getFile()
+	if f == nil {
+		return nil
+	}
 
-	// baseName-YYYY-MM-DD.ext
+	base := f.Name()
+	dir, name := filepath.Dir(base), filepath.Base(base)
 	ext := filepath.Ext(name)
 	baseNoExt := strings.TrimSuffix(name, ext)
+
 	datedName := fmt.Sprintf("%s-%s%s", baseNoExt, day, ext)
 	datedBase := filepath.Join(dir, datedName)
 
-	limit := maxRot
-	if limit <= 0 {
-		limit = 1000 // Límite de seguridad
+	oldFile := f
+
+	maxRot := _log.maxRotation
+	if maxRot < 1 {
+		maxRot = 1
 	}
 
-	// Rotar backups fechados: dated.N -> dated.(N+1)
-	for i := limit - 1; i >= 0; i-- {
+	// Rotar backups con fecha: log.N → log.(N+1)
+	for i := maxRot - 1; i >= 0; i-- {
 		src := fmt.Sprintf("%s.%d", datedBase, i)
 		dst := fmt.Sprintf("%s.%d", datedBase, i+1)
 		if _, err := os.Stat(src); err == nil {
-			if err := os.Rename(src, dst); err != nil {
-				reportInternalError("rotating dated backup file %s: %v", src, err)
-			}
+			_ = os.Rename(src, dst)
 		}
 	}
 
+	// Renombrar log_base.log → log_base-YYYY-MM-DD.log
 	if err := os.Rename(base, datedBase); err != nil {
-		reportInternalError("renaming base file to dated: %v", err)
+		reportInternalError("daily rotation rename: %v", err)
 	}
 
+	// Crear nuevo archivo base.log vacío
 	newFile, err := os.OpenFile(base, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		reportInternalError("opening new file after daily rotation: %v", err)
+		reportInternalError("create base after daily rotation: %v", err)
 		return err
 	}
+
 	_log.setFile(newFile)
 	_log.currentSize = 0
 
-	if oldFile != nil {
-		if err := oldFile.Close(); err != nil {
-			reportInternalError("closing old file after daily rotation: %v", err)
-		}
+	if oldFile != nil && oldFile.Fd() != newFile.Fd() {
+		_ = oldFile.Close()
 	}
 	return nil
 }
 
 func (_log *Log) logRotate() error {
-	_log.mtx.Lock()
-	base := _log.getFile().Name()
-	oldFile := _log.getFile()
-	maxRot := _log.maxRotation
-	dailyEnabled := _log.daily
-	today := time.Now().Format(lastDayFormat)
-	_log.mtx.Unlock()
+	f := _log.getFile()
+	if f == nil {
+		return nil
+	}
 
-	targetStem := base
-	if dailyEnabled {
+	base := f.Name()
+	oldFile := f
+
+	maxRot := _log.maxRotation
+	if maxRot < 1 {
+		maxRot = 1
+	}
+
+	target := base
+
+	if _log.daily {
+		today := time.Now().Format(lastDayFormat)
 		dir, name := filepath.Dir(base), filepath.Base(base)
 		ext := filepath.Ext(name)
 		baseNoExt := strings.TrimSuffix(name, ext)
-		datedName := fmt.Sprintf("%s-%s%s", baseNoExt, today, ext)
-		targetStem = filepath.Join(dir, datedName)
+		dated := filepath.Join(dir, fmt.Sprintf("%s-%s%s", baseNoExt, today, ext))
+		target = dated
 	}
 
-	// Rotar la cadena existente targetStem.(n) -> targetStem.(n+1)
+	// target.N → target.(N+1)
 	for i := maxRot - 1; i >= 0; i-- {
-		src := fmt.Sprintf("%s.%d", targetStem, i)
-		dst := fmt.Sprintf("%s.%d", targetStem, i+1)
+		src := fmt.Sprintf("%s.%d", target, i)
+		dst := fmt.Sprintf("%s.%d", target, i+1)
 		if _, err := os.Stat(src); err == nil {
-			if err := os.Rename(src, dst); err != nil {
-				reportInternalError("rotating file %s: %v", src, err)
-			}
+			_ = os.Rename(src, dst)
 		}
 	}
 
-	firstBackup := targetStem + ".0"
+	firstBackup := target + ".0"
 	if err := os.Rename(base, firstBackup); err != nil {
-		reportInternalError("renaming base file for size rotation: %v", err)
+		reportInternalError("size rotation rename: %v", err)
 	}
 
 	newFile, err := os.OpenFile(base, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
-		reportInternalError("opening new file: %v", err)
+		reportInternalError("create file after size rotation: %v", err)
 		return err
 	}
+
 	_log.setFile(newFile)
 	_log.currentSize = 0
 
-	if oldFile != nil {
-		if err := oldFile.Close(); err != nil {
-			reportInternalError("closing old file after size rotation: %v", err)
-		}
+	if oldFile != nil && oldFile.Fd() != newFile.Fd() {
+		_ = oldFile.Close()
 	}
 	return nil
 }
 
 func (_log *Log) Close() {
 	_log.closeOnce.Do(func() {
+
 		if _log.done != nil {
 			close(_log.done)
 		}
+
 		if _log.timeTicker != nil {
 			_log.timeTicker.Stop()
 		}
@@ -507,8 +580,9 @@ func (_log *Log) Close() {
 		if _log.events != nil {
 			close(_log.events)
 		}
-		close(_log.message)
+
 		_log.wg.Wait()
+
 		if f := _log.getFile(); f != nil {
 			if err := f.Sync(); err != nil {
 				reportInternalError("final file sync error: %v", err)
@@ -553,6 +627,8 @@ func Start(logName, logPath, logLevel string, opts ...Option) (*Log, error) {
 		bufferSize: DefaultBufferSize,
 		batchSize:  DefaultBatchSize,
 		flushEvery: flushInterval,
+		bufferCap:  256 << 10, // default 256KB internal buffers for better large-log performance
+		drainBurst: 512,       // default larger burst for better parallel throughput
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -561,22 +637,28 @@ func Start(logName, logPath, logLevel string, opts ...Option) (*Log, error) {
 	// header := fmt.Sprintf("=== HumanJuan Logger v%s started at %s ===\n", version, time.Now().Format(time.RFC3339))
 	// _, _ = f.WriteString(header)
 
+	// Determine internal buffer capacity: prefer bufferCap, fall back to (deprecated) batchSize.
+	internalCap := cfg.bufferCap
+	if internalCap <= 0 {
+		internalCap = cfg.batchSize
+	}
+
 	log := &Log{
-		name:        logName,
-		path:        logPath,
-		level:       logLevel,
-		maxSize:     0,
-		maxRotation: 0,
-		daily:       false,
-		lastDay:     time.Now().Format(lastDayFormat),
-		status:      true,
-		message:     make(chan []byte, cfg.bufferSize),
-		events:      make(chan logEvent, 4096),
-		buffer:      make([]byte, 0, cfg.batchSize),
-		writeBuf:    make([]byte, 0, cfg.batchSize),
-		flushEvery:  cfg.flushEvery,
-		done:        make(chan struct{}),
-		control:     make(chan controlReq, 8),
+		name:            logName,
+		path:            logPath,
+		level:           logLevel,
+		maxSize:         0,
+		maxRotation:     0,
+		daily:           false,
+		lastDay:         time.Now().Format(lastDayFormat),
+		status:          true,
+		events:          make(chan logEvent, cfg.bufferSize),
+		buffer:          make([]byte, 0, internalCap),
+		writeBuf:        make([]byte, 0, internalCap),
+		flushEvery:      cfg.flushEvery,
+		done:            make(chan struct{}),
+		control:         make(chan controlReq, 8),
+		drainBurstLimit: cfg.drainBurst,
 	}
 
 	log.file.Store(f)
@@ -621,8 +703,8 @@ func (_log *Log) startTimestampCacheUpdater() {
 }
 
 func (_log *Log) updateTimestampCache() {
-	buf := getBuf()
-	defer putBuf(buf)
+	buf := getBufCap(64)
+	defer putBufCap(buf)
 	now := time.Now()
 	buf = now.AppendFormat(buf, timestampFormat)
 	cachedCopy := make([]byte, len(buf))
@@ -630,8 +712,56 @@ func (_log *Log) updateTimestampCache() {
 	_log.cachedTime.Store(cachedCopy)
 }
 
+func levelBytesFor(lvl string) []byte {
+	switch lvl {
+	case Level.DEBUG:
+		return levelDebug
+	case Level.INFO:
+		return levelInfo
+	case Level.WARN:
+		return levelWarn
+	case Level.ERROR:
+		return levelError
+	case Level.CRITICAL:
+		return levelCritical
+	default:
+		return levelInfo
+	}
+}
+
+func appendLine(dst []byte, ts []byte, lvl []byte, msg string) []byte {
+	if len(ts) > 0 {
+		dst = append(dst, ts...)
+	}
+	dst = append(dst, ' ')
+	dst = append(dst, '[')
+	dst = append(dst, lvl...)
+	dst = append(dst, ']', ' ')
+	dst = append(dst, msg...)
+	if len(dst) == 0 || dst[len(dst)-1] != '\n' {
+		dst = append(dst, '\n')
+	}
+	return dst
+}
+
+func appendLineBytes(dst []byte, ts []byte, lvl []byte, msg []byte) []byte {
+	if len(ts) > 0 {
+		dst = append(dst, ts...)
+	}
+	dst = append(dst, ' ')
+	dst = append(dst, '[')
+	dst = append(dst, lvl...)
+	dst = append(dst, ']', ' ')
+	dst = append(dst, msg...)
+	if len(dst) == 0 || dst[len(dst)-1] != '\n' {
+		dst = append(dst, '\n')
+	}
+	return dst
+}
+
 func (_log *Log) startWriting() {
 	defer _log.wg.Done()
+
 	interval := _log.flushEvery
 	if interval <= 0 {
 		interval = flushInterval
@@ -639,333 +769,191 @@ func (_log *Log) startWriting() {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	batch := make([][]byte, 0, 1024)
-
-	levelBytesFor := func(lvl string) []byte {
-		switch lvl {
-		case Level.DEBUG:
-			return levelDebug
-		case Level.INFO:
-			return levelInfo
-		case Level.WARN:
-			return levelWarn
-		case Level.ERROR:
-			return levelError
-		case Level.CRITICAL:
-			return levelCritical
-		default:
-			return levelInfo
-		}
-	}
-	appendLine := func(dst []byte, ts []byte, lvl []byte, msg string) []byte {
-		if len(ts) > 0 {
-			dst = append(dst, ts...)
-		}
-		dst = append(dst, ' ')
-		dst = append(dst, '[')
-		dst = append(dst, lvl...)
-		dst = append(dst, ']', ' ')
-		dst = append(dst, msg...)
-		if len(dst) == 0 || dst[len(dst)-1] != '\n' {
-			dst = append(dst, '\n')
-		}
-		return dst
-	}
-	appendLineBytes := func(dst []byte, ts []byte, lvl []byte, msg []byte) []byte {
-		if len(ts) > 0 {
-			dst = append(dst, ts...)
-		}
-		dst = append(dst, ' ')
-		dst = append(dst, '[')
-		dst = append(dst, lvl...)
-		dst = append(dst, ']', ' ')
-		dst = append(dst, msg...)
-		if len(dst) == 0 || dst[len(dst)-1] != '\n' {
-			dst = append(dst, '\n')
-		}
-		return dst
-	}
-
 	for {
 		select {
-		case first, ok := <-_log.message:
-			if !ok {
-				if len(batch) > 0 {
-					_log.mtx.Lock()
-					for i := range batch {
-						_log.buffer = append(_log.buffer, batch[i]...)
-						putBuf(batch[i])
-					}
-					_log.mtx.Unlock()
-					batch = batch[:0]
-				}
-				// vaciar eventos pendientes antes de finalizar
-				for {
-					select {
-					case ev, ok2 := <-_log.events:
-						if !ok2 {
-							_log.events = nil
-							goto events_drained_on_close
-						}
-						var ts []byte
-						if cachedTS := _log.cachedTime.Load(); cachedTS != nil {
-							ts = cachedTS.([]byte)
-						}
-						lvl := levelBytesFor(ev.level)
-						_log.mtx.Lock()
-						if ev.kind == 0 {
-							_log.buffer = appendLine(_log.buffer, ts, lvl, ev.msgStr)
-						} else { // kind == 1 (bytes)
-							_log.buffer = appendLineBytes(_log.buffer, ts, lvl, ev.msgBytes)
-						}
-						_log.mtx.Unlock()
-					default:
-						goto events_drained_on_close
-					}
-				}
-			events_drained_on_close:
-				_log.flush()
-				return
-			}
-
-			batch = append(batch, first)
-			qlen := len(_log.message)
-			drainLimit := 256
-
-			if qlen > 10_000 {
-				drainLimit = 4096
-			} else if qlen > 1000 {
-				drainLimit = 1024
-			}
-
-			if qlen > 1000 && cap(batch) < 2048 {
-				nb := make([][]byte, 0, 2048)
-				nb = append(nb, batch...)
-				batch = nb
-			}
-			for i := 1; i < drainLimit; i++ {
-				select {
-				case msg := <-_log.message:
-					batch = append(batch, msg)
-				default:
-					i = drainLimit
-				}
-			}
-
-			_log.mtx.Lock()
-			for i := range batch {
-				_log.buffer = append(_log.buffer, batch[i]...)
-				putBuf(batch[i])
-			}
-			// Dispara flush más agresivo cuando el intervalo es corto (<= 100ms):
-			// umbral = 2/3 de la capacidad; de lo contrario, 1/2 como antes.
-			capBuf := cap(_log.buffer)
-			threshold := capBuf / 2
-			if interval <= 100*time.Millisecond {
-				threshold = (capBuf * 2) / 3
-			}
-			shouldFlush := len(_log.buffer) >= threshold
-			_log.mtx.Unlock()
-			atomic.AddUint64(&_log.dequeueSeq, uint64(len(batch)))
-			batch = batch[:0]
-
-			if shouldFlush {
-				_log.flush()
-			}
 
 		case ev, ok := <-_log.events:
 			if !ok {
-				_log.events = nil
-				break
-			}
-			processed := 0
-			var ts []byte
-			if cachedTS := _log.cachedTime.Load(); cachedTS != nil {
-				ts = cachedTS.([]byte)
-			}
-			lvl := levelBytesFor(ev.level)
-			_log.mtx.Lock()
-			if ev.kind == 0 {
-				_log.buffer = appendLine(_log.buffer, ts, lvl, ev.msgStr)
-			} else { // kind == 1 (bytes)
-				_log.buffer = appendLineBytes(_log.buffer, ts, lvl, ev.msgBytes)
-			}
-			capBuf := cap(_log.buffer)
-			threshold := capBuf / 2
-			if interval <= 100*time.Millisecond {
-				threshold = (capBuf * 2) / 3
-			}
-			shouldFlush := len(_log.buffer) >= threshold
-			_log.mtx.Unlock()
-			processed++
-
-			// vaciar más eventos disponibles en ráfagas
-			evDrain := 256
-			qlen := len(_log.events)
-			if qlen > 10_000 {
-				evDrain = 4096
-			} else if qlen > 1000 {
-				evDrain = 1024
-			}
-			for i := 0; i < evDrain; i++ {
-				select {
-				case ev2 := <-_log.events:
-					lvl2 := levelBytesFor(ev2.level)
-					_log.mtx.Lock()
-					if ev2.kind == 0 {
-						_log.buffer = appendLine(_log.buffer, ts, lvl2, ev2.msgStr)
-					} else {
-						_log.buffer = appendLineBytes(_log.buffer, ts, lvl2, ev2.msgBytes)
-					}
-					if !shouldFlush {
-						capBuf := cap(_log.buffer)
-						threshold := capBuf / 2
-						if interval <= 100*time.Millisecond {
-							threshold = (capBuf * 2) / 3
-						}
-						if len(_log.buffer) >= threshold {
-							shouldFlush = true
-						}
-					}
-					_log.mtx.Unlock()
-					processed++
-				default:
-					i = evDrain
-				}
-			}
-			if processed > 0 {
-				atomic.AddUint64(&_log.dequeueSeq, uint64(processed))
-			}
-			if shouldFlush {
 				_log.flush()
+				return
 			}
+			_log.writeEvent(ev)
+			_log.drainBurst()
 
 		case <-ticker.C:
 			_log.flush()
 
 		case req := <-_log.control:
-			for {
-				drained := make([][]byte, 0, 1024)
-				drainedCount := 0
-				for {
-					select {
-					case msg := <-_log.message:
-						drained = append(drained, msg)
-						drainedCount++
-					default:
-						goto drained_done
-					}
-				}
-			drained_done:
-				if drainedCount > 0 {
-					_log.mtx.Lock()
-					for i := range drained {
-						_log.buffer = append(_log.buffer, drained[i]...)
-						putBuf(drained[i])
-					}
-					_log.mtx.Unlock()
+			if req.setRotation != nil {
+				backup := req.setRotation.backup
+				if backup < 1 {
+					backup = 1
 				}
 
-				evCount := 0
-				var ts2 []byte
-				if cachedTS := _log.cachedTime.Load(); cachedTS != nil {
-					ts2 = cachedTS.([]byte)
-				}
-				for {
-					select {
-					case ev := <-_log.events:
-						lvl := levelBytesFor(ev.level)
-						_log.mtx.Lock()
-						if ev.kind == 0 {
-							_log.buffer = appendLine(_log.buffer, ts2, lvl, ev.msgStr)
-						} else {
-							_log.buffer = appendLineBytes(_log.buffer, ts2, lvl, ev.msgBytes)
-						}
-						_log.mtx.Unlock()
-						evCount++
-					default:
-						goto drained_events_done
-					}
-				}
-			drained_events_done:
-				_log.flush()
+				_log.maxRotation = backup
 
-				if drainedCount > 0 {
-					atomic.AddUint64(&_log.dequeueSeq, uint64(drainedCount))
+				if req.setRotation.sizeMB <= 0 {
+					_log.maxSize = 0
+				} else {
+					_log.maxSize = int64(req.setRotation.sizeMB) * 1024 * 1024
 				}
-				if evCount > 0 {
-					atomic.AddUint64(&_log.dequeueSeq, uint64(evCount))
+				if req.ack != nil {
+					close(req.ack)
 				}
-
-				if atomic.LoadUint64(&_log.dequeueSeq) >= req.target {
-					if req.ack != nil {
-						close(req.ack)
-					}
-					break
-				}
+				continue
 			}
+
+			// Daily rotation
+			if req.setDaily != nil {
+				enabled := *req.setDaily
+				_log.daily = enabled
+				if enabled {
+					_log.forceDailyRotate = true
+					_log.lastDay = time.Now().Format(lastDayFormat)
+				}
+
+				if req.ack != nil {
+					close(req.ack)
+				}
+				continue
+			}
+
+			_log.currentReq = req
+			_log.doSyncInternal()
 		}
 	}
 }
 
+func (_log *Log) writeEvent(ev logEvent) {
+	// Single place where the final line is built and appended to the buffer
+	var ts []byte
+	if cached := _log.cachedTime.Load(); cached != nil {
+		ts = cached.([]byte)
+	}
+	lvl := levelBytesFor(ev.level)
+
+	switch ev.kind {
+	case 0: // string payload, format here
+		ms := ev.msgStr
+		// Trim trailing LF/CR only for emptiness detection
+		if len(ms) > 0 && ms[len(ms)-1] == '\n' {
+			ms = ms[:len(ms)-1]
+			if len(ms) > 0 && ms[len(ms)-1] == '\r' {
+				ms = ms[:len(ms)-1]
+			}
+		}
+		if len(ms) > 0 {
+			_log.buffer = appendLine(_log.buffer, ts, lvl, ev.msgStr)
+		}
+	case 1: // raw []byte payload, format here
+		mb := ev.msgBytes
+		if len(mb) > 0 && mb[len(mb)-1] == '\n' {
+			mb = mb[:len(mb)-1]
+			if len(mb) > 0 && mb[len(mb)-1] == '\r' {
+				mb = mb[:len(mb)-1]
+			}
+		}
+		if len(mb) > 0 {
+			_log.buffer = appendLineBytes(_log.buffer, ts, lvl, ev.msgBytes)
+		}
+	case 2: // preformatted JSON bytes; just append and return buffer to JSON pool
+		_log.buffer = append(_log.buffer, ev.msgBytes...)
+		putJSONBuf(ev.msgBytes)
+	}
+
+	atomic.AddUint64(&_log.dequeueSeq, 1)
+}
+
+func (_log *Log) drainBurst() {
+	limit := _log.drainBurstLimit
+	if limit <= 0 {
+		limit = 256
+	}
+	for i := 0; i < limit; i++ {
+		select {
+		case ev := <-_log.events:
+			_log.writeEvent(ev)
+		default:
+			return
+		}
+	}
+}
+
+// doSyncInternal must run only in the writer goroutine.
+func (_log *Log) doSyncInternal() {
+	req := _log.currentReq
+
+	// Drain pending events
+	for {
+		select {
+		case ev := <-_log.events:
+			_log.writeEvent(ev)
+		default:
+			goto drainedDone
+		}
+	}
+
+drainedDone:
+	_log.flush()
+
+	if req.ack != nil {
+		if req.target == 0 || atomic.LoadUint64(&_log.dequeueSeq) >= req.target {
+			close(req.ack)
+		}
+	}
+}
+
+// Public Sync: ordering barrier; does NOT drain from producers.
+// Sends a control message to the writer with the target seq and waits for ack.
 func (_log *Log) Sync() {
+	// Snapshot current enqueue sequence as the target barrier
 	target := atomic.LoadUint64(&_log.enqueueSeq)
 	ack := make(chan struct{})
 	req := controlReq{target: target, ack: ack}
-
-	select {
-	case _log.control <- req:
-		// ok
-	case <-time.After(2 * time.Second):
-		// fallback: no bloquear al caller si el writer no responde
-	}
-
-	select {
-	case <-ack:
-	case <-time.After(5 * time.Second):
-	}
-	if f := _log.getFile(); f != nil {
-		_ = f.Sync()
-	}
+	_log.control <- req
+	<-ack
 }
 
 func (_log *Log) flush() {
-	_log.mtx.Lock()
-	_log.buffer, _log.writeBuf = _log.writeBuf[:0], _log.buffer
-
-	needDaily := false
-	dayForRotate := ""
-	if _log.daily {
-		if _log.forceDailyRotate {
-			needDaily = true
-			dayForRotate = _log.lastDay
-		} else {
-			today := time.Now().Format(lastDayFormat)
-			if today != _log.lastDay {
-				needDaily = true
-				dayForRotate = _log.lastDay
-			}
-		}
+	if len(_log.buffer) == 0 {
+		return
 	}
-	_log.mtx.Unlock()
 
+	// Double buffer (lock-free swap on the hot path)
+	_log.writeBuf, _log.buffer = _log.buffer, _log.writeBuf[:0]
 	remaining := _log.writeBuf
 
+	// Protect rotation and file I/O under a single mutex
+	_log.mtx.Lock()
+	defer _log.mtx.Unlock()
+
+	// Rotation and file handling must be protected
+	today := time.Now().Format(lastDayFormat)
+	needDaily := false
+	rotateDay := _log.lastDay
+
+	if _log.daily && (today != _log.lastDay || _log.forceDailyRotate) {
+		needDaily = true
+	}
+
 	if needDaily {
-		if f := _log.getFile(); f != nil && len(remaining) > 0 {
+		if f := _log.getFile(); f != nil {
+			// Write remaining data before rotation
 			if written, _ := f.Write(remaining); written > 0 {
 				_log.currentSize += int64(written)
 			}
 		}
-		_ = _log.rotateByDate(dayForRotate)
-		_log.mtx.Lock()
-		_log.lastDay = time.Now().Format(lastDayFormat)
+
+		// Rotate using the previous day (lastDay) to name the rotated file
+		_ = _log.rotateByDate(rotateDay)
+
+		_log.lastDay = today
 		_log.forceDailyRotate = false
-		_log.mtx.Unlock()
 		_log.writeBuf = _log.writeBuf[:0]
 		return
 	}
 
+	// Size-based rotation
 	for len(remaining) > 0 {
 		f := _log.getFile()
 		if f == nil {
@@ -976,35 +964,41 @@ func (_log *Log) flush() {
 			if written, _ := f.Write(remaining); written > 0 {
 				_log.currentSize += int64(written)
 			}
-			remaining = remaining[:0]
+			remaining = nil
 			break
 		}
 
 		lineEnd := bytes.IndexByte(remaining, '\n')
 		var line []byte
-		if lineEnd >= 0 {
-			line = remaining[:lineEnd+1]
-		} else {
+		if lineEnd < 0 {
 			line = remaining
+		} else {
+			line = remaining[:lineEnd+1]
 		}
 
 		cur := _log.currentSize
-		if cur >= _log.maxSize {
-			_ = _log.logRotate()
-			continue
-		}
-		allowed := _log.maxSize - cur
-		if int64(len(line)) > allowed && cur > 0 {
+		maxSize := _log.maxSize
+
+		// Si está lleno, rotar
+		if cur >= maxSize {
 			_ = _log.logRotate()
 			continue
 		}
 
-		if int64(len(line)) > allowed && cur == 0 {
-			if written, _ := f.Write(line); written > 0 {
-				_log.currentSize += int64(written)
+		allowed := maxSize - cur
+
+		if int64(len(line)) > allowed {
+			if cur == 0 {
+				// escribir línea demasiado grande
+				if written, _ := f.Write(line); written > 0 {
+					_log.currentSize += int64(written)
+				}
+				remaining = remaining[len(line):]
+				_log.logRotate()
+				continue
 			}
-			remaining = remaining[len(line):]
-			_ = _log.logRotate()
+			// rotar primero
+			_log.logRotate()
 			continue
 		}
 
@@ -1013,6 +1007,8 @@ func (_log *Log) flush() {
 		}
 		remaining = remaining[len(line):]
 	}
+
+	// Limpiar writeBuf antes de salir del lock
 	_log.writeBuf = _log.writeBuf[:0]
 }
 
@@ -1038,59 +1034,119 @@ func (_log *Log) formatMessageString(data interface{}, args ...interface{}) stri
 }
 
 func (_log *Log) formatStructuredLog(level string, fields map[string]interface{}) []byte {
-	var ts string
-	if cachedTS := _log.cachedTime.Load(); cachedTS != nil {
-		ts = string(cachedTS.([]byte))
-	} else {
-		ts = time.Now().Format(timestampFormat)
-	}
-
-	finalFields := make(map[string]interface{}, len(fields)+2)
-	finalFields["ts"] = ts
-	finalFields["level"] = level
-
-	for k, v := range fields {
-		finalFields[k] = v
-	}
-
-	jsonBytes, err := json.Marshal(finalFields)
-	if err != nil {
-		fallback := fmt.Sprintf(`{"ts":"%s","level":"CRITICAL","msg":"Acacia JSON Marshal failed: %v"}`, ts, err)
-		return []byte(fallback)
-	}
-
-	buf := getBuf()
-	buf = append(buf, jsonBytes...)
-	buf = append(buf, '\n')
-
-	return buf
-}
-
-func (_log *Log) setFormatBytesFromString(msg string, level string) []byte {
 	var tsBytes []byte
+
 	if cachedTS := _log.cachedTime.Load(); cachedTS != nil {
 		tsBytes = cachedTS.([]byte)
 	}
 
-	var levelBytes []byte
-	switch level {
-	case Level.DEBUG:
-		levelBytes = levelDebug
-	case Level.INFO:
-		levelBytes = levelInfo
-	case Level.WARN:
-		levelBytes = levelWarn
-	case Level.ERROR:
-		levelBytes = levelError
-	case Level.CRITICAL:
-		levelBytes = levelCritical
+	levelBytes := levelBytesFor(level)
+	need := estimateJSONSize(fields, tsBytes, levelBytes)
+	buf := getJSONBufCap(need)
+	buf = buf[:0]
+
+	buf = append(buf, '{')
+
+	// Timestamp
+	if len(tsBytes) > 0 {
+		buf = append(buf, `"ts":"`...)
+		buf = append(buf, tsBytes...)
+		buf = append(buf, '"')
 	}
 
-	need := len(tsBytes) + 1 + 1 + len(levelBytes) + 2 + len(msg) + 1
-	if need <= 0 {
-		need = 64 // fallback minimal
+	// Level
+	buf = append(buf, `,"level":"`...)
+	buf = append(buf, levelBytes...)
+	buf = append(buf, '"')
+
+	// Campos
+	for k, v := range fields {
+		buf = append(buf, `,"`...)
+		buf = append(buf, k...)
+		buf = append(buf, `":`...)
+
+		switch x := v.(type) {
+		case string:
+			buf = append(buf, '"')
+			buf = escapeJSONInto(buf, x)
+			buf = append(buf, '"')
+		case int:
+			buf = strconv.AppendInt(buf, int64(x), 10)
+		case int8:
+			buf = strconv.AppendInt(buf, int64(x), 10)
+		case int16:
+			buf = strconv.AppendInt(buf, int64(x), 10)
+		case int32:
+			buf = strconv.AppendInt(buf, int64(x), 10)
+		case int64:
+			buf = strconv.AppendInt(buf, x, 10)
+		case uint:
+			buf = strconv.AppendUint(buf, uint64(x), 10)
+		case uint8:
+			buf = strconv.AppendUint(buf, uint64(x), 10)
+		case uint16:
+			buf = strconv.AppendUint(buf, uint64(x), 10)
+		case uint32:
+			buf = strconv.AppendUint(buf, uint64(x), 10)
+		case uint64:
+			buf = strconv.AppendUint(buf, x, 10)
+		case float32:
+			buf = strconv.AppendFloat(buf, float64(x), 'f', -1, 32)
+		case float64:
+			buf = strconv.AppendFloat(buf, x, 'f', -1, 64)
+
+		case bool:
+			if x {
+				buf = append(buf, "true"...)
+			} else {
+				buf = append(buf, "false"...)
+			}
+
+		default:
+			buf = append(buf, '"')
+			buf = escapeJSONInto(buf, fmt.Sprint(x))
+			buf = append(buf, '"')
+		}
 	}
+
+	buf = append(buf, '}', '\n')
+	return buf
+}
+
+func escapeJSONInto(dst []byte, s string) []byte {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '\\', '"':
+			dst = append(dst, '\\', c)
+		case '\n':
+			dst = append(dst, '\\', 'n')
+		case '\r':
+			dst = append(dst, '\\', 'r')
+		case '\t':
+			dst = append(dst, '\\', 't')
+		default:
+			dst = append(dst, c)
+		}
+	}
+	return dst
+}
+
+func (_log *Log) setFormatBytesFromString(msg string, level string) []byte {
+	// Timestamp cache
+	var tsBytes []byte
+	if cachedTS := _log.cachedTime.Load(); cachedTS != nil {
+		tsBytes = cachedTS.([]byte)
+	}
+	levelBytes := levelBytesFor(level)
+
+	need := len(tsBytes) + 1 + 1 + len(levelBytes) + 2 + len(msg) + 1
+	if need < 64 {
+		need = 64
+	}
+
 	buf := getBufCap(need)
+	// buf = buf[:0]
 
 	if len(tsBytes) > 0 {
 		buf = append(buf, tsBytes...)
@@ -1103,7 +1159,33 @@ func (_log *Log) setFormatBytesFromString(msg string, level string) []byte {
 	if len(buf) == 0 || buf[len(buf)-1] != '\n' {
 		buf = append(buf, '\n')
 	}
+
 	return buf
+}
+
+func estimateJSONSize(fields map[string]interface{}, tsBytes []byte, level []byte) int {
+	size := len(tsBytes) + len(level) + 32
+
+	for k, v := range fields {
+		size += len(k) + 4
+
+		switch x := v.(type) {
+		case string:
+			size += len(x) + 2
+		case int, int8, int16, int32, int64:
+			size += 20
+		case uint, uint8, uint16, uint32, uint64:
+			size += 20
+		case float32, float64:
+			size += 24
+		case bool:
+			size += 5
+		default:
+			size += len(fmt.Sprint(x)) + 2
+		}
+	}
+
+	return size + 4
 }
 
 func (_log *Log) TimestampFormat(format string) {
