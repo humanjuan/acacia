@@ -70,13 +70,20 @@ func TestIntensiveRotation(t *testing.T) {
 	t.Log("--- 2. Test de Rotación Diaria ---")
 	log.DailyRotation(true)
 
-	log.Info("DailyLog: Forzando creación de archivo fechado de hoy.")
+	log.Info("DailyLog: verificando que NO se cree archivo fechado inmediatamente")
 	log.Sync()
 	today := time.Now().Format("2006-01-02")
 	todayName := fmt.Sprintf("%s-%s", strings.TrimSuffix(logName, filepath.Ext(logName)), today)
 	expectedToday := todayName + filepath.Ext(logName)
-	if _, err := os.Stat(filepath.Join(dir, expectedToday)); os.IsNotExist(err) {
-		t.Errorf("FAIL: No se encontró el archivo fechado de hoy: %s", expectedToday)
+
+	// Con el nuevo comportamiento, al habilitar daily no debe aparecer inmediatamente el archivo con fecha de hoy
+	if _, err := os.Stat(filepath.Join(dir, expectedToday)); err == nil {
+		t.Errorf("FAIL: Se encontró el archivo fechado de hoy antes del cambio real de día: %s", expectedToday)
+	}
+
+	// Debe seguir existiendo el archivo base activo
+	if _, err := os.Stat(filepath.Join(dir, logName)); err != nil {
+		t.Errorf("FAIL: No existe el archivo base activo tras habilitar daily: %s", logName)
 	}
 }
 
