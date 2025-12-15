@@ -74,6 +74,7 @@ type config struct {
 	flushEvery time.Duration
 	bufferCap  int
 	drainBurst int
+	dropOnFull bool
 }
 
 type Option func(*config)
@@ -120,6 +121,13 @@ func WithDrainBurst(n int) Option {
 		if n > 0 {
 			conf.drainBurst = n
 		}
+	}
+}
+
+// WithDropOnFull enables dropping log events when the internal queue is full.
+func WithDropOnFull(drop bool) Option {
+	return func(conf *config) {
+		conf.dropOnFull = drop
 	}
 }
 
@@ -204,6 +212,8 @@ type Log struct {
 	currentSize       int64
 	currentReq        controlReq
 	drainBurstLimit   int
+	dropOnFull        bool
+	droppedSeq        uint64
 }
 
 // controlReq is a control message for the writer goroutine.
@@ -320,7 +330,7 @@ func (_log *Log) Status() bool {
 	return _log.status
 }
 
-func (_log *Log) Dropped() uint64 { return 0 }
+func (_log *Log) Dropped() uint64 { return atomic.LoadUint64(&_log.droppedSeq) }
 
 func (_log *Log) logfString(level string, data interface{}, args ...interface{}) {
 	if !_log.shouldLog(level) {
@@ -341,7 +351,16 @@ func (_log *Log) logfString(level string, data interface{}, args ...interface{})
 			fields = map[string]interface{}{"msg": msgStr}
 		}
 		raw := _log.formatStructuredLog(level, fields)
-		_log.events <- logEvent{level: level, msgBytes: raw, kind: 2, seq: seq}
+		if _log.dropOnFull {
+			select {
+			case _log.events <- logEvent{level: level, msgBytes: raw, kind: 2, seq: seq}:
+			default:
+				atomic.AddUint64(&_log.droppedSeq, 1)
+				putJSONBuf(raw)
+			}
+		} else {
+			_log.events <- logEvent{level: level, msgBytes: raw, kind: 2, seq: seq}
+		}
 		return
 	}
 
@@ -349,17 +368,41 @@ func (_log *Log) logfString(level string, data interface{}, args ...interface{})
 	if len(args) == 0 {
 		switch v := data.(type) {
 		case string:
-			_log.events <- logEvent{level: level, msgStr: v, kind: 0, seq: seq}
+			if _log.dropOnFull {
+				select {
+				case _log.events <- logEvent{level: level, msgStr: v, kind: 0, seq: seq}:
+				default:
+					atomic.AddUint64(&_log.droppedSeq, 1)
+				}
+			} else {
+				_log.events <- logEvent{level: level, msgStr: v, kind: 0, seq: seq}
+			}
 			return
 		case []byte:
-			_log.events <- logEvent{level: level, msgBytes: v, kind: 1, seq: seq}
+			if _log.dropOnFull {
+				select {
+				case _log.events <- logEvent{level: level, msgBytes: v, kind: 1, seq: seq}:
+				default:
+					atomic.AddUint64(&_log.droppedSeq, 1)
+				}
+			} else {
+				_log.events <- logEvent{level: level, msgBytes: v, kind: 1, seq: seq}
+			}
 			return
 		}
 	}
 
 	// Formatted path or other types
 	msgStr := _log.formatMessageString(data, args...)
-	_log.events <- logEvent{level: level, msgStr: msgStr, kind: 0, seq: seq}
+	if _log.dropOnFull {
+		select {
+		case _log.events <- logEvent{level: level, msgStr: msgStr, kind: 0, seq: seq}:
+		default:
+			atomic.AddUint64(&_log.droppedSeq, 1)
+		}
+	} else {
+		_log.events <- logEvent{level: level, msgStr: msgStr, kind: 0, seq: seq}
+	}
 }
 
 func (_log *Log) logfBytes(level string, msgBytes []byte) {
@@ -368,7 +411,15 @@ func (_log *Log) logfBytes(level string, msgBytes []byte) {
 	}
 	seq := atomic.AddUint64(&_log.enqueueSeq, 1)
 	// Delegate final formatting to the writer
-	_log.events <- logEvent{level: level, msgBytes: msgBytes, kind: 1, seq: seq}
+	if _log.dropOnFull {
+		select {
+		case _log.events <- logEvent{level: level, msgBytes: msgBytes, kind: 1, seq: seq}:
+		default:
+			atomic.AddUint64(&_log.droppedSeq, 1)
+		}
+	} else {
+		_log.events <- logEvent{level: level, msgBytes: msgBytes, kind: 1, seq: seq}
+	}
 }
 
 func (_log *Log) shouldLog(level string) bool {
@@ -432,7 +483,15 @@ func (_log *Log) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	seq := atomic.AddUint64(&_log.enqueueSeq, 1)
-	_log.events <- logEvent{level: Level.INFO, msgBytes: p, kind: 1, seq: seq}
+	if _log.dropOnFull {
+		select {
+		case _log.events <- logEvent{level: Level.INFO, msgBytes: p, kind: 1, seq: seq}:
+		default:
+			atomic.AddUint64(&_log.droppedSeq, 1)
+		}
+	} else {
+		_log.events <- logEvent{level: Level.INFO, msgBytes: p, kind: 1, seq: seq}
+	}
 	return len(p), nil
 }
 
@@ -659,6 +718,7 @@ func Start(logName, logPath, logLevel string, opts ...Option) (*Log, error) {
 		done:            make(chan struct{}),
 		control:         make(chan controlReq, 8),
 		drainBurstLimit: cfg.drainBurst,
+		dropOnFull:      cfg.dropOnFull,
 	}
 
 	log.file.Store(f)

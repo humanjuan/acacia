@@ -3,3 +3,24 @@
 *.iml
 *.ipr
 .DS_Store
+
+# Private local documentation and evidence - never commit
+.private/
+docs/private/
+reports/private/
+
+# Local benchmark, profiling and stress artifacts
+*.pprof
+*.prof
+*.trace
+*.test
+*.coverprofile
+coverage.out
+cpu.out
+mem.out
+mutex.out
+block.out
+bench.out
+bench-*.txt
+stress.out
+fuzz-artifacts/
