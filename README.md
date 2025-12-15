@@ -378,7 +378,7 @@ Naming when daily rotation is enabled:
 
 Details:
 - Rotation is performed only by the writer goroutine (owner‑only), so it’s race‑free.
-- Enabling daily rotation will trigger an initial safe rotation so the day’s file exists immediately.
+- Daily rotation happens when the calendar day actually changes (no initial pre‑rotation upon enabling).
 
 ---
 

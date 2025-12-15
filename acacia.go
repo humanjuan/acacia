@@ -6,7 +6,7 @@
 //                                                                                                                    //
 //  HumanJuan Acacia - High-performance concurrent logger with real file rotation                                     //
 //                                                                                                                    //
-//  Version: 2.3.0                                                                                                    //
+//  Version: 2.3.1                                                                                                    //
 //                                                                                                                    //
 //  MIT License                                                                                                       //
 //                                                                                                                    //
@@ -47,7 +47,7 @@ import (
 )
 
 const (
-	version           = "2.3.0"
+	version           = "2.3.1"
 	DefaultBufferSize = 500_000
 	MinBufferSize     = 1_000
 	DefaultBatchSize  = 64 * 1024 // 64 KB (deprecated: use bufferCap)
@@ -808,7 +808,7 @@ func (_log *Log) startWriting() {
 				enabled := *req.setDaily
 				_log.daily = enabled
 				if enabled {
-					_log.forceDailyRotate = true
+					// Establecer el día base al actual para evitar rotación inmediata al habilitar
 					_log.lastDay = time.Now().Format(lastDayFormat)
 				}
 
@@ -932,7 +932,7 @@ func (_log *Log) flush() {
 	needDaily := false
 	rotateDay := _log.lastDay
 
-	if _log.daily && (today != _log.lastDay || _log.forceDailyRotate) {
+	if _log.daily && (today != _log.lastDay) {
 		needDaily = true
 	}
 
@@ -948,7 +948,6 @@ func (_log *Log) flush() {
 		_ = _log.rotateByDate(rotateDay)
 
 		_log.lastDay = today
-		_log.forceDailyRotate = false
 		_log.writeBuf = _log.writeBuf[:0]
 		return
 	}

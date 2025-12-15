@@ -105,15 +105,13 @@ func TestDailyRotation(t *testing.T) {
 	datedNew := baseName + "-" + today + filepath.Ext(base)
 	datedOld := base + "-" + today
 
-	if !(fileExists(t, datedNew) || fileExists(t, datedOld)) {
-		t.Fatal("No se creó archivo con fecha de hoy")
+	if fileExists(t, datedNew) || fileExists(t, datedOld) {
+		t.Fatal("Se creó archivo con fecha de hoy antes del cambio real de día")
 	}
 
-	// No podemos alterar internamente el lastDay desde un paquete externo.
-	// Verificamos que el archivo base exista después del primer ciclo y que
-	// la rotación diaria haya creado el archivo con fecha de hoy.
+	// Debe existir el archivo base activo
 	if !fileExists(t, base) {
-		t.Fatal("No se recreó el archivo principal")
+		t.Fatal("No existe el archivo principal tras habilitar daily")
 	}
 }
 
