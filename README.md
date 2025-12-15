@@ -1,4 +1,4 @@
-[![Go Package](https://img.shields.io/badge/Go%20Package-Reference-green?style=flat&logo=Go&link=https://pkg.go.dev/github.com/humanjuan/acacia/v2)](https://pkg.go.dev/github.com/humanjuan/acacia/v2)
+[![Go Reference](https://pkg.go.dev/badge/github.com/humanjuan/acacia/v2.svg)](https://pkg.go.dev/github.com/humanjuan/acacia/v2)
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy_Me_A_Coffee-Support-orange?logo=buy-me-a-coffee&style=flat-square)](https://www.buymeacoffee.com/humanjuan)
 
 # Acacia: High Performance Concurrent Logger for Go
@@ -378,7 +378,7 @@ Naming when daily rotation is enabled:
 
 Details:
 - Rotation is performed only by the writer goroutine (owner‑only), so it’s race‑free.
-- Enabling daily rotation will trigger an initial safe rotation so the day’s file exists immediately.
+- Daily rotation happens when the calendar day actually changes (no initial pre‑rotation upon enabling).
 
 ---
 
