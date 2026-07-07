@@ -1173,6 +1173,7 @@ func (_log *Log) formatStructuredLog(level string, fields map[string]interface{}
 }
 
 func escapeJSONInto(dst []byte, s string) []byte {
+	const hex = "0123456789abcdef"
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch c {
@@ -1184,8 +1185,16 @@ func escapeJSONInto(dst []byte, s string) []byte {
 			dst = append(dst, '\\', 'r')
 		case '\t':
 			dst = append(dst, '\\', 't')
+		case '\b':
+			dst = append(dst, '\\', 'b')
+		case '\f':
+			dst = append(dst, '\\', 'f')
 		default:
-			dst = append(dst, c)
+			if c < 32 {
+				dst = append(dst, '\\', 'u', '0', '0', hex[c>>4], hex[c&0x0f])
+			} else {
+				dst = append(dst, c)
+			}
 		}
 	}
 	return dst

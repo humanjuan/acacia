@@ -34,26 +34,24 @@ The current engineering effort focuses on improving:
 Current phase:
 
 ```text
-Fase 00 — Organización del repositorio
+Fase 01 — Baseline reproducible
 ```
 
 Current status:
 
 ```text
-Fase 00 is being closed as a documentation and repository-organization commit.
+Fase 01 completed / pending review. SEC-01-001 was detected and remediated during Phase 01C.
 ```
 
 Next phase:
 
 ```text
-Fase 01 — Baseline reproducible
+Fase 02 — API estructurada tipada
 ```
 
 Important status note:
 
-Before starting Fase 01, the repository must keep the Fase 00 commit strictly documentary/configurational.
-
-Experimental changes in the logger core must not be mixed into the Fase 00 commit.
+Before starting Fase 02, the baseline reproducible metrics must be established and documented cleanly in the public reports folder.
 
 ---
 
@@ -285,20 +283,20 @@ When assisting this project:
 
 ## 13. Current Next Action
 
-Recommended next action before Fase 01:
+Current Next Action:
 
 ```text
-Commit Fase 00 documentation/configuration changes only.
+Review and commit Fase 01 baseline/fuzzing artifacts, then prepare Fase 02.
 ```
 
 Recommended commit message:
 
 ```text
-docs: organize Acacia improvement planning and private evidence boundary
+fix: harden Acacia JSON escaping with fuzz baseline
 ```
 
 After that, begin:
 
 ```text
-Fase 01 — Baseline reproducible
+Fase 02 — API estructurada tipada
 ```
