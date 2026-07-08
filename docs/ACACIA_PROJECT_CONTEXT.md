@@ -34,24 +34,24 @@ The current engineering effort focuses on improving:
 Current phase:
 
 ```text
-Fase 05 — Backpressure, cola y memoria
+Fase 06 — Filesystem, permisos y rotación segura
 ```
 
 Current status:
 
 ```text
-Fase 05 completed / pending review.
+Fase 06 completed / pending review.
 ```
 
 Next phase:
 
 ```text
-Fase 06 — Filesystem, permisos y rotación segura
+Fase 07 — Semántica formal de Sync y Close
 ```
 
 Important status note:
 
-Before starting Fase 06, the backpressure mechanism, queue policies, and memory optimizations must be fully verified and documented under baseline benchmarks.
+Before starting Fase 07, the filesystem hardening, permissions policy, symlink protections, and secure rotation behavior must be fully verified and documented.
 
 ---
 
@@ -286,17 +286,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review and commit Fase 05 backpressure/queue/memory artifacts, then prepare Fase 06.
+Review and commit Fase 06 filesystem/permissions/rotation artifacts, then prepare Fase 07.
 ```
 
 Recommended commit message:
 
 ```text
-perf: add explicit backpressure policies and queue metrics
+security: harden filesystem paths permissions and rotation
 ```
 
 After that, begin:
 
 ```text
-Fase 06 — Filesystem, permisos y rotación segura
+Fase 07 — Semántica formal de Sync y Close
 ```

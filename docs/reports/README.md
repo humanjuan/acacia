@@ -9,9 +9,13 @@ Este directorio almacena los reportes de cierre de cada fase de optimización y 
 * [Reporte de Fase 03: Encoder JSON append-only](phase-03-json-encoder-report.md)
 * [Reporte de Fase 04: Redacción y seguridad de datos sensibles](phase-04-redaction-security-report.md)
 * [Reporte de Fase 05: Backpressure, cola y memoria](phase-05-backpressure-queue-memory-report.md)
+* [Reporte de Fase 06: Filesystem, permisos y rotación segura](phase-06-filesystem-permissions-rotation-report.md)
 
 ## Hallazgos de Seguridad (Security Findings)
 * [SEC-01-001: Fallo de escape de caracteres de control en JSON estructurado](security/SEC-01-001-json-control-characters-escaping-failure.md)
+* [SEC-06-001: Path Traversal en Start](security/SEC-06-001-filesystem-path-traversal.md)
+* [SEC-06-002: Symlink Overwrite en Rotación](security/SEC-06-002-symlink-rotation-overwrite.md)
+* [SEC-06-003: Permisos Inseguros en Filesystem](security/SEC-06-003-insecure-log-file-permissions.md)
 
 ## Reglas para nuevos reportes:
 * Cada reporte debe seguir la estructura definida en [public-phase-report.template.md](../templates/public-phase-report.template.md).

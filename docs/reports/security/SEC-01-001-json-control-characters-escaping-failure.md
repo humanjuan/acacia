@@ -18,7 +18,7 @@ De acuerdo con el estándar RFC 8259 (Sección 7), todos los caracteres de contr
 * **Corrupción de Visibilidad:** Pérdida de trazas críticas cuando el log contiene payloads binarios imprevistos.
 
 ### Code Snippet Reference
-En [acacia.go:L531-L548](file:///Volumes/Juan_Ext/projects/go/acacia/acacia.go#L531-L548):
+En [acacia.go:L531-L548](../../acacia.go#L531-L548):
 ```go
 func escapeJSONInto(dst []byte, s string) []byte {
 	for i := 0; i < len(s); i++ {

@@ -36,6 +36,7 @@ package acacia
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -77,6 +78,13 @@ const (
 	DropDebugOnly
 )
 
+var (
+	ErrInvalidLogFilename  = errors.New("invalid log filename")
+	ErrInvalidLogDirectory = errors.New("invalid log directory")
+	ErrUnsafeSymlink       = errors.New("unsafe symlink")
+	ErrInsecureFileMode    = errors.New("insecure file mode")
+)
+
 type config struct {
 	bufferSize         int
 	batchSize          int // Deprecated: prefer bufferCap for internal buffering capacity
@@ -85,6 +93,8 @@ type config struct {
 	drainBurst         int
 	dropOnFull         bool
 	backpressurePolicy BackpressurePolicy
+	fileMode           os.FileMode
+	dirMode            os.FileMode
 }
 
 type Option func(*config)
@@ -155,6 +165,28 @@ func WithBackpressurePolicy(policy BackpressurePolicy) Option {
 		} else {
 			conf.dropOnFull = true
 		}
+	}
+}
+
+// WithFileMode sets the file permissions mode for the active log file and backups.
+func WithFileMode(mode os.FileMode) Option {
+	return func(conf *config) {
+		// Do not accept world-writable or group-writable bits
+		if mode&0002 != 0 {
+			mode &^= 0002
+		}
+		if mode&0020 != 0 {
+			mode &^= 0020
+		}
+		conf.fileMode = mode
+	}
+}
+
+// WithDirMode sets the directory permissions mode.
+func WithDirMode(mode os.FileMode) Option {
+	return func(conf *config) {
+		mode &^= 0022
+		conf.dirMode = mode
 	}
 }
 
@@ -245,6 +277,8 @@ type Log struct {
 	enqueuedSeq        uint64
 	writeErrorsSeq     uint64
 	rotationErrorsSeq  uint64
+	fileMode           os.FileMode
+	dirMode            os.FileMode
 }
 
 // controlReq is a control message for the writer goroutine.
@@ -627,19 +661,32 @@ func (_log *Log) rotateByDate(day string) error {
 	for i := maxRot - 1; i >= 0; i-- {
 		src := fmt.Sprintf("%s.%d", datedBase, i)
 		dst := fmt.Sprintf("%s.%d", datedBase, i+1)
+
+		if IsSymlink(src) || IsSymlink(dst) {
+			atomic.AddUint64(&_log.rotationErrorsSeq, 1)
+			continue
+		}
+
 		if _, err := os.Stat(src); err == nil {
-			_ = os.Rename(src, dst)
+			if err := os.Rename(src, dst); err != nil {
+				atomic.AddUint64(&_log.rotationErrorsSeq, 1)
+			}
 		}
 	}
 
 	// Renombrar log_base.log → log_base-YYYY-MM-DD.log
+	if IsSymlink(base) || IsSymlink(datedBase) {
+		atomic.AddUint64(&_log.rotationErrorsSeq, 1)
+		return ErrUnsafeSymlink
+	}
+
 	if err := os.Rename(base, datedBase); err != nil {
 		reportInternalError("daily rotation rename: %v", err)
 		atomic.AddUint64(&_log.rotationErrorsSeq, 1)
 	}
 
 	// Crear nuevo archivo base.log vacío
-	newFile, err := os.OpenFile(base, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	newFile, err := os.OpenFile(base, os.O_CREATE|os.O_APPEND|os.O_WRONLY, _log.fileMode)
 	if err != nil {
 		reportInternalError("create base after daily rotation: %v", err)
 		atomic.AddUint64(&_log.rotationErrorsSeq, 1)
@@ -684,18 +731,31 @@ func (_log *Log) logRotate() error {
 	for i := maxRot - 1; i >= 0; i-- {
 		src := fmt.Sprintf("%s.%d", target, i)
 		dst := fmt.Sprintf("%s.%d", target, i+1)
+
+		if IsSymlink(src) || IsSymlink(dst) {
+			atomic.AddUint64(&_log.rotationErrorsSeq, 1)
+			continue
+		}
+
 		if _, err := os.Stat(src); err == nil {
-			_ = os.Rename(src, dst)
+			if err := os.Rename(src, dst); err != nil {
+				atomic.AddUint64(&_log.rotationErrorsSeq, 1)
+			}
 		}
 	}
 
 	firstBackup := target + ".0"
+	if IsSymlink(base) || IsSymlink(firstBackup) {
+		atomic.AddUint64(&_log.rotationErrorsSeq, 1)
+		return ErrUnsafeSymlink
+	}
+
 	if err := os.Rename(base, firstBackup); err != nil {
 		reportInternalError("size rotation rename: %v", err)
 		atomic.AddUint64(&_log.rotationErrorsSeq, 1)
 	}
 
-	newFile, err := os.OpenFile(base, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	newFile, err := os.OpenFile(base, os.O_CREATE|os.O_APPEND|os.O_WRONLY, _log.fileMode)
 	if err != nil {
 		reportInternalError("create file after size rotation: %v", err)
 		atomic.AddUint64(&_log.rotationErrorsSeq, 1)
@@ -744,26 +804,10 @@ func (_log *Log) Close() {
 ///////////////////////////////////////
 
 func Start(logName, logPath, logLevel string, opts ...Option) (*Log, error) {
-	if logName == "" {
-		return nil, fmt.Errorf("log name cannot be empty")
+	if err := ValidateLogFilename(logName); err != nil {
+		return nil, err
 	}
-	if logPath == "" {
-		logPath = "./"
-	}
-	logPath = filepath.Clean(logPath) + string(os.PathSeparator)
-
-	if _, err := os.Stat(logPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("path %s does not exist", logPath)
-	}
-
-	logLevel = strings.ToUpper(logLevel)
-	if !verifyLevel(logLevel) {
-		reportInternalError("warning: invalid log level '%s', falling back to INFO", logLevel)
-		logLevel = Level.INFO
-	}
-
-	fullPath := filepath.Join(logPath, logName)
-	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	cleanedDir, err := ValidateLogDirectory(logPath)
 	if err != nil {
 		return nil, err
 	}
@@ -775,13 +819,28 @@ func Start(logName, logPath, logLevel string, opts ...Option) (*Log, error) {
 		bufferCap:          256 << 10, // default 256KB internal buffers for better large-log performance
 		drainBurst:         512,       // default larger burst for better parallel throughput
 		backpressurePolicy: BlockOnFull,
+		fileMode:           0600, // secure default
+		dirMode:            0700, // secure default
 	}
 	for _, opt := range opts {
 		opt(cfg)
 	}
 
-	// header := fmt.Sprintf("=== HumanJuan Logger v%s started at %s ===\n", version, time.Now().Format(time.RFC3339))
-	// _, _ = f.WriteString(header)
+	logLevel = strings.ToUpper(logLevel)
+	if !verifyLevel(logLevel) {
+		reportInternalError("warning: invalid log level '%s', falling back to INFO", logLevel)
+		logLevel = Level.INFO
+	}
+
+	fullPath := filepath.Join(cleanedDir, logName)
+	if IsSymlink(fullPath) {
+		return nil, ErrUnsafeSymlink
+	}
+
+	f, err := os.OpenFile(fullPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, cfg.fileMode)
+	if err != nil {
+		return nil, err
+	}
 
 	// Determine internal buffer capacity: prefer bufferCap, fall back to (deprecated) batchSize.
 	internalCap := cfg.bufferCap
@@ -791,7 +850,7 @@ func Start(logName, logPath, logLevel string, opts ...Option) (*Log, error) {
 
 	log := &Log{
 		name:               logName,
-		path:               logPath,
+		path:               cleanedDir + string(os.PathSeparator),
 		level:              logLevel,
 		maxSize:            0,
 		maxRotation:        0,
@@ -807,6 +866,8 @@ func Start(logName, logPath, logLevel string, opts ...Option) (*Log, error) {
 		drainBurstLimit:    cfg.drainBurst,
 		dropOnFull:         cfg.dropOnFull,
 		backpressurePolicy: cfg.backpressurePolicy,
+		fileMode:           cfg.fileMode,
+		dirMode:            cfg.dirMode,
 	}
 
 	log.file.Store(f)
@@ -1404,6 +1465,66 @@ func estimateJSONSize(fields map[string]interface{}, tsBytes []byte, level []byt
 func (_log *Log) TimestampFormat(format string) {
 	timestampFormat = format
 	_log.updateTimestampCache()
+}
+
+func ValidateLogFilename(name string) error {
+	if name == "" {
+		return ErrInvalidLogFilename
+	}
+	if name == "." || name == ".." {
+		return ErrInvalidLogFilename
+	}
+	if len(name) > 255 {
+		return ErrInvalidLogFilename
+	}
+	if strings.Contains(name, "\x00") {
+		return ErrInvalidLogFilename
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return ErrInvalidLogFilename
+	}
+	if strings.Contains(name, "..") {
+		return ErrInvalidLogFilename
+	}
+	if filepath.Clean(name) != name {
+		return ErrInvalidLogFilename
+	}
+	if filepath.Base(name) != name {
+		return ErrInvalidLogFilename
+	}
+	return nil
+}
+
+func ValidateLogDirectory(dir string) (string, error) {
+	if dir == "" {
+		dir = "./"
+	}
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", ErrInvalidLogDirectory
+	}
+	info, err := os.Lstat(absDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", err
+		}
+		return "", ErrInvalidLogDirectory
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", ErrUnsafeSymlink
+	}
+	if !info.IsDir() {
+		return "", ErrInvalidLogDirectory
+	}
+	return absDir, nil
+}
+
+func IsSymlink(path string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeSymlink != 0
 }
 
 func verifyLevel(lvl string) bool {
