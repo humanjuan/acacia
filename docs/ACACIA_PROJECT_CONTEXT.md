@@ -34,24 +34,24 @@ The current engineering effort focuses on improving:
 Current phase:
 
 ```text
-Fase 02 — API estructurada tipada
+Fase 03 — Encoder JSON append-only
 ```
 
 Current status:
 
 ```text
-Fase 02 completed / pending review.
+Fase 03 completed / pending review.
 ```
 
 Next phase:
 
 ```text
-Fase 03 — Encoder JSON append-only
+Fase 04 — Redacción y seguridad de datos sensibles
 ```
 
 Important status note:
 
-Before starting Fase 03, the Fluent Builder API must be fully verified and documented under baseline benchmarks.
+Before starting Fase 04, the append-only JSON encoder must be fully verified and documented under baseline benchmarks.
 
 ---
 
@@ -286,17 +286,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review and commit Fase 02 builder API and testing artifacts, then prepare Fase 03.
+Review and commit Fase 03 append-only JSON encoder artifacts, then prepare Fase 04.
 ```
 
 Recommended commit message:
 
 ```text
-feat: add typed structured event builder
+perf: add append-only JSON encoder for structured events
 ```
 
 After that, begin:
 
 ```text
-Fase 03 — Encoder JSON append-only
+Fase 04 — Redacción y seguridad de datos sensibles
 ```

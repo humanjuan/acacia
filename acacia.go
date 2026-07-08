@@ -1172,25 +1172,49 @@ func (_log *Log) formatStructuredLog(level string, fields map[string]interface{}
 	return buf
 }
 
+func ensureJSONCapacity(buf []byte, extra int) []byte {
+	needed := len(buf) + extra
+	if cap(buf) >= needed {
+		return buf
+	}
+	newCap := cap(buf) * 2
+	if newCap < needed {
+		newCap = needed
+	}
+	newBuf := getJSONBufCap(newCap)
+	newBuf = newBuf[:len(buf)]
+	copy(newBuf, buf)
+	putJSONBuf(buf)
+	return newBuf
+}
+
 func escapeJSONInto(dst []byte, s string) []byte {
 	const hex = "0123456789abcdef"
+	dst = ensureJSONCapacity(dst, len(s))
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch c {
 		case '\\', '"':
+			dst = ensureJSONCapacity(dst, 2)
 			dst = append(dst, '\\', c)
 		case '\n':
+			dst = ensureJSONCapacity(dst, 2)
 			dst = append(dst, '\\', 'n')
 		case '\r':
+			dst = ensureJSONCapacity(dst, 2)
 			dst = append(dst, '\\', 'r')
 		case '\t':
+			dst = ensureJSONCapacity(dst, 2)
 			dst = append(dst, '\\', 't')
 		case '\b':
+			dst = ensureJSONCapacity(dst, 2)
 			dst = append(dst, '\\', 'b')
 		case '\f':
+			dst = ensureJSONCapacity(dst, 2)
 			dst = append(dst, '\\', 'f')
 		default:
 			if c < 32 {
+				dst = ensureJSONCapacity(dst, 6)
 				dst = append(dst, '\\', 'u', '0', '0', hex[c>>4], hex[c&0x0f])
 			} else {
 				dst = append(dst, c)
@@ -1285,7 +1309,7 @@ func (_log *Log) setFile(f *os.File) {
 	}
 }
 
-// --- Event Builder API (Fase 02) ---
+// --- Event Builder API (Fase 02 & Fase 03) ---
 
 type Event struct {
 	logger *Log
@@ -1317,6 +1341,7 @@ func (l *Log) NewEvent(level string) *Event {
 	}
 	levelBytes := levelBytesFor(level)
 
+	e.buf = ensureJSONCapacity(e.buf, 60)
 	e.buf = append(e.buf, '{')
 	if len(tsBytes) > 0 {
 		e.buf = append(e.buf, `"ts":"`...)
@@ -1357,6 +1382,7 @@ func (e *Event) Str(key, val string) *Event {
 	if e == nil {
 		return nil
 	}
+	e.buf = ensureJSONCapacity(e.buf, len(key)+len(val)+6)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, `":"`...)
@@ -1369,6 +1395,7 @@ func (e *Event) Int(key string, val int) *Event {
 	if e == nil {
 		return nil
 	}
+	e.buf = ensureJSONCapacity(e.buf, len(key)+24)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, `":`...)
@@ -1380,6 +1407,7 @@ func (e *Event) Int64(key string, val int64) *Event {
 	if e == nil {
 		return nil
 	}
+	e.buf = ensureJSONCapacity(e.buf, len(key)+24)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, `":`...)
@@ -1391,6 +1419,7 @@ func (e *Event) Uint64(key string, val uint64) *Event {
 	if e == nil {
 		return nil
 	}
+	e.buf = ensureJSONCapacity(e.buf, len(key)+24)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, `":`...)
@@ -1402,6 +1431,7 @@ func (e *Event) Bool(key string, val bool) *Event {
 	if e == nil {
 		return nil
 	}
+	e.buf = ensureJSONCapacity(e.buf, len(key)+10)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, `":`...)
@@ -1417,6 +1447,7 @@ func (e *Event) Float64(key string, val float64) *Event {
 	if e == nil {
 		return nil
 	}
+	e.buf = ensureJSONCapacity(e.buf, len(key)+28)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, `":`...)
@@ -1431,8 +1462,10 @@ func (e *Event) Err(err error) *Event {
 	if err == nil {
 		return e
 	}
+	errStr := err.Error()
+	e.buf = ensureJSONCapacity(e.buf, len(errStr)+12)
 	e.buf = append(e.buf, `,"error":"`...)
-	e.buf = escapeJSONInto(e.buf, err.Error())
+	e.buf = escapeJSONInto(e.buf, errStr)
 	e.buf = append(e.buf, '"')
 	return e
 }
@@ -1441,6 +1474,7 @@ func (e *Event) Dur(key string, val time.Duration) *Event {
 	if e == nil {
 		return nil
 	}
+	e.buf = ensureJSONCapacity(e.buf, len(key)+24)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, `":`...)
@@ -1452,6 +1486,7 @@ func (e *Event) Time(key string, val time.Time) *Event {
 	if e == nil {
 		return nil
 	}
+	e.buf = ensureJSONCapacity(e.buf, len(key)+40)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, `":"`...)
@@ -1464,6 +1499,7 @@ func (e *Event) Secret(key, val string) *Event {
 	if e == nil {
 		return nil
 	}
+	e.buf = ensureJSONCapacity(e.buf, len(key)+16)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, `":"[REDACTED]"`...)
@@ -1474,6 +1510,7 @@ func (e *Event) StrRedacted(key, val string) *Event {
 	if e == nil {
 		return nil
 	}
+	e.buf = ensureJSONCapacity(e.buf, len(key)+16)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
 	e.buf = append(e.buf, `":"[REDACTED]"`...)
@@ -1489,6 +1526,7 @@ func (e *Event) Msg(msg string) {
 	}
 	e.done = true
 
+	e.buf = ensureJSONCapacity(e.buf, len(msg)+11)
 	e.buf = append(e.buf, `,"msg":"`...)
 	e.buf = escapeJSONInto(e.buf, msg)
 	e.buf = append(e.buf, '"', '}', '\n')
@@ -1505,6 +1543,7 @@ func (e *Event) Send() {
 	}
 	e.done = true
 
+	e.buf = ensureJSONCapacity(e.buf, 2)
 	e.buf = append(e.buf, '}', '\n')
 
 	e.sendEvent()
