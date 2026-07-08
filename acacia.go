@@ -68,13 +68,23 @@ var (
 	levelCritical = []byte("CRITICAL")
 )
 
+type BackpressurePolicy int
+
+const (
+	DropNewest BackpressurePolicy = iota
+	BlockOnFull
+	DropOldest
+	DropDebugOnly
+)
+
 type config struct {
-	bufferSize int
-	batchSize  int // Deprecated: prefer bufferCap for internal buffering capacity
-	flushEvery time.Duration
-	bufferCap  int
-	drainBurst int
-	dropOnFull bool
+	bufferSize         int
+	batchSize          int // Deprecated: prefer bufferCap for internal buffering capacity
+	flushEvery         time.Duration
+	bufferCap          int
+	drainBurst         int
+	dropOnFull         bool
+	backpressurePolicy BackpressurePolicy
 }
 
 type Option func(*config)
@@ -128,6 +138,23 @@ func WithDrainBurst(n int) Option {
 func WithDropOnFull(drop bool) Option {
 	return func(conf *config) {
 		conf.dropOnFull = drop
+		if drop {
+			conf.backpressurePolicy = DropNewest
+		} else {
+			conf.backpressurePolicy = BlockOnFull
+		}
+	}
+}
+
+// WithBackpressurePolicy sets the queue backpressure policy.
+func WithBackpressurePolicy(policy BackpressurePolicy) Option {
+	return func(conf *config) {
+		conf.backpressurePolicy = policy
+		if policy == BlockOnFull {
+			conf.dropOnFull = false
+		} else {
+			conf.dropOnFull = true
+		}
 	}
 }
 
@@ -187,33 +214,37 @@ var Level = getLevel{
 }
 
 type Log struct {
-	name, path, level string
-	structured        bool
-	status            bool
-	maxSize           int64
-	maxRotation       int
-	daily             bool
-	lastDay           string
-	file              atomic.Value
-	events            chan logEvent
-	wg                sync.WaitGroup
-	mtx               sync.Mutex
-	buffer            []byte
-	writeBuf          []byte
-	flushEvery        time.Duration
-	cachedTime        atomic.Value
-	timeTicker        *time.Ticker
-	done              chan struct{}
-	closeOnce         sync.Once
-	forceDailyRotate  bool
-	enqueueSeq        uint64
-	dequeueSeq        uint64
-	control           chan controlReq
-	currentSize       int64
-	currentReq        controlReq
-	drainBurstLimit   int
-	dropOnFull        bool
-	droppedSeq        uint64
+	name, path, level  string
+	structured         bool
+	status             bool
+	maxSize            int64
+	maxRotation        int
+	daily              bool
+	lastDay            string
+	file               atomic.Value
+	events             chan logEvent
+	wg                 sync.WaitGroup
+	mtx                sync.Mutex
+	buffer             []byte
+	writeBuf           []byte
+	flushEvery         time.Duration
+	cachedTime         atomic.Value
+	timeTicker         *time.Ticker
+	done               chan struct{}
+	closeOnce          sync.Once
+	forceDailyRotate   bool
+	enqueueSeq         uint64
+	dequeueSeq         uint64
+	control            chan controlReq
+	currentSize        int64
+	currentReq         controlReq
+	drainBurstLimit    int
+	dropOnFull         bool
+	droppedSeq         uint64
+	backpressurePolicy BackpressurePolicy
+	enqueuedSeq        uint64
+	writeErrorsSeq     uint64
+	rotationErrorsSeq  uint64
 }
 
 // controlReq is a control message for the writer goroutine.
@@ -330,13 +361,36 @@ func (_log *Log) Status() bool {
 	return _log.status
 }
 
-func (_log *Log) Dropped() uint64 { return atomic.LoadUint64(&_log.droppedSeq) }
+type Stats struct {
+	EnqueuedTotal       uint64
+	WrittenTotal        uint64
+	DroppedTotal        uint64
+	QueueLen            int
+	QueueCap            int
+	WriteErrorsTotal    uint64
+	RotationErrorsTotal uint64
+}
 
-func (_log *Log) logfString(level string, data interface{}, args ...interface{}) {
+func (_log *Log) Stats() Stats {
+	return Stats{
+		EnqueuedTotal:       atomic.LoadUint64(&_log.enqueuedSeq),
+		WrittenTotal:        atomic.LoadUint64(&_log.dequeueSeq),
+		DroppedTotal:        atomic.LoadUint64(&_log.droppedSeq),
+		QueueLen:            len(_log.events),
+		QueueCap:            cap(_log.events),
+		WriteErrorsTotal:    atomic.LoadUint64(&_log.writeErrorsSeq),
+		RotationErrorsTotal: atomic.LoadUint64(&_log.rotationErrorsSeq),
+	}
+}
+
+func (_log *Log) Dropped() uint64 {
+	return atomic.LoadUint64(&_log.droppedSeq)
+}
+
+func (_log *Log) log(level string, data interface{}, args ...interface{}) {
 	if !_log.shouldLog(level) {
 		return
 	}
-	seq := atomic.AddUint64(&_log.enqueueSeq, 1)
 
 	// Structured JSON: prebuild and enqueue as preformatted (kind=2)
 	if _log.structured {
@@ -351,16 +405,7 @@ func (_log *Log) logfString(level string, data interface{}, args ...interface{})
 			fields = map[string]interface{}{"msg": msgStr}
 		}
 		raw := _log.formatStructuredLog(level, fields)
-		if _log.dropOnFull {
-			select {
-			case _log.events <- logEvent{level: level, msgBytes: raw, kind: 2, seq: seq}:
-			default:
-				atomic.AddUint64(&_log.droppedSeq, 1)
-				putJSONBuf(raw)
-			}
-		} else {
-			_log.events <- logEvent{level: level, msgBytes: raw, kind: 2, seq: seq}
-		}
+		_log.enqueueEvent(logEvent{level: level, msgBytes: raw, kind: 2})
 		return
 	}
 
@@ -368,58 +413,24 @@ func (_log *Log) logfString(level string, data interface{}, args ...interface{})
 	if len(args) == 0 {
 		switch v := data.(type) {
 		case string:
-			if _log.dropOnFull {
-				select {
-				case _log.events <- logEvent{level: level, msgStr: v, kind: 0, seq: seq}:
-				default:
-					atomic.AddUint64(&_log.droppedSeq, 1)
-				}
-			} else {
-				_log.events <- logEvent{level: level, msgStr: v, kind: 0, seq: seq}
-			}
+			_log.enqueueEvent(logEvent{level: level, msgStr: v, kind: 0})
 			return
 		case []byte:
-			if _log.dropOnFull {
-				select {
-				case _log.events <- logEvent{level: level, msgBytes: v, kind: 1, seq: seq}:
-				default:
-					atomic.AddUint64(&_log.droppedSeq, 1)
-				}
-			} else {
-				_log.events <- logEvent{level: level, msgBytes: v, kind: 1, seq: seq}
-			}
+			_log.enqueueEvent(logEvent{level: level, msgBytes: v, kind: 1})
 			return
 		}
 	}
 
 	// Formatted path or other types
 	msgStr := _log.formatMessageString(data, args...)
-	if _log.dropOnFull {
-		select {
-		case _log.events <- logEvent{level: level, msgStr: msgStr, kind: 0, seq: seq}:
-		default:
-			atomic.AddUint64(&_log.droppedSeq, 1)
-		}
-	} else {
-		_log.events <- logEvent{level: level, msgStr: msgStr, kind: 0, seq: seq}
-	}
+	_log.enqueueEvent(logEvent{level: level, msgStr: msgStr, kind: 0})
 }
 
 func (_log *Log) logfBytes(level string, msgBytes []byte) {
 	if !_log.shouldLog(level) {
 		return
 	}
-	seq := atomic.AddUint64(&_log.enqueueSeq, 1)
-	// Delegate final formatting to the writer
-	if _log.dropOnFull {
-		select {
-		case _log.events <- logEvent{level: level, msgBytes: msgBytes, kind: 1, seq: seq}:
-		default:
-			atomic.AddUint64(&_log.droppedSeq, 1)
-		}
-	} else {
-		_log.events <- logEvent{level: level, msgBytes: msgBytes, kind: 1, seq: seq}
-	}
+	_log.enqueueEvent(logEvent{level: level, msgBytes: msgBytes, kind: 1})
 }
 
 func (_log *Log) shouldLog(level string) bool {
@@ -438,24 +449,88 @@ func (_log *Log) shouldLog(level string) bool {
 	return false
 }
 
+func (_log *Log) enqueueEvent(ev logEvent) {
+	ev.seq = atomic.AddUint64(&_log.enqueueSeq, 1)
+
+	switch _log.backpressurePolicy {
+	case BlockOnFull:
+		_log.events <- ev
+		atomic.AddUint64(&_log.enqueuedSeq, 1)
+
+	case DropNewest:
+		select {
+		case _log.events <- ev:
+			atomic.AddUint64(&_log.enqueuedSeq, 1)
+		default:
+			atomic.AddUint64(&_log.droppedSeq, 1)
+			if ev.kind == 2 {
+				putJSONBuf(ev.msgBytes)
+			}
+		}
+
+	case DropOldest:
+		select {
+		case _log.events <- ev:
+			atomic.AddUint64(&_log.enqueuedSeq, 1)
+		default:
+			// Queue is full, evict oldest
+			select {
+			case oldEv := <-_log.events:
+				atomic.AddUint64(&_log.droppedSeq, 1)
+				if oldEv.kind == 2 {
+					putJSONBuf(oldEv.msgBytes)
+				}
+			default:
+			}
+			// Try enqueuing again
+			select {
+			case _log.events <- ev:
+				atomic.AddUint64(&_log.enqueuedSeq, 1)
+			default:
+				// Fallback to dropping newest
+				atomic.AddUint64(&_log.droppedSeq, 1)
+				if ev.kind == 2 {
+					putJSONBuf(ev.msgBytes)
+				}
+			}
+		}
+
+	case DropDebugOnly:
+		if ev.level == Level.DEBUG || ev.level == Level.INFO {
+			select {
+			case _log.events <- ev:
+				atomic.AddUint64(&_log.enqueuedSeq, 1)
+			default:
+				atomic.AddUint64(&_log.droppedSeq, 1)
+				if ev.kind == 2 {
+					putJSONBuf(ev.msgBytes)
+				}
+			}
+		} else {
+			_log.events <- ev
+			atomic.AddUint64(&_log.enqueuedSeq, 1)
+		}
+	}
+}
+
 func (_log *Log) Info(data interface{}, args ...interface{}) {
-	_log.logfString(Level.INFO, data, args...)
+	_log.log(Level.INFO, data, args...)
 }
 
 func (_log *Log) Warn(data interface{}, args ...interface{}) {
-	_log.logfString(Level.WARN, data, args...)
+	_log.log(Level.WARN, data, args...)
 }
 
 func (_log *Log) Error(data interface{}, args ...interface{}) {
-	_log.logfString(Level.ERROR, data, args...)
+	_log.log(Level.ERROR, data, args...)
 }
 
 func (_log *Log) Critical(data interface{}, args ...interface{}) {
-	_log.logfString(Level.CRITICAL, data, args...)
+	_log.log(Level.CRITICAL, data, args...)
 }
 
 func (_log *Log) Debug(data interface{}, args ...interface{}) {
-	_log.logfString(Level.DEBUG, data, args...)
+	_log.log(Level.DEBUG, data, args...)
 }
 
 func (_log *Log) InfoBytes(msg []byte) {
@@ -482,20 +557,14 @@ func (_log *Log) Write(p []byte) (int, error) {
 	if !_log.shouldLog(Level.INFO) {
 		return len(p), nil
 	}
-	seq := atomic.AddUint64(&_log.enqueueSeq, 1)
-	if _log.dropOnFull {
-		select {
-		case _log.events <- logEvent{level: Level.INFO, msgBytes: p, kind: 1, seq: seq}:
-		default:
-			atomic.AddUint64(&_log.droppedSeq, 1)
-		}
-	} else {
-		_log.events <- logEvent{level: Level.INFO, msgBytes: p, kind: 1, seq: seq}
-	}
+	_log.enqueueEvent(logEvent{level: Level.INFO, msgBytes: p, kind: 1})
 	return len(p), nil
 }
 
 func (_log *Log) Rotation(sizeMB int, backup int) {
+	if !_log.Status() {
+		return
+	}
 	if backup < 1 {
 		backup = 1
 	}
@@ -504,20 +573,33 @@ func (_log *Log) Rotation(sizeMB int, backup int) {
 		setRotation: &rotationConfig{sizeMB: sizeMB, backup: backup},
 		ack:         ack,
 	}
-	_log.control <- req
-	// Wait for ack to ensure the configuration is applied before returning
-	<-ack
+	select {
+	case _log.control <- req:
+		select {
+		case <-ack:
+		case <-_log.done:
+		}
+	case <-_log.done:
+	}
 }
 
 func (_log *Log) DailyRotation(enabled bool) {
+	if !_log.Status() {
+		return
+	}
 	ack := make(chan struct{})
 	req := controlReq{
 		setDaily: &enabled,
 		ack:      ack,
 	}
-	_log.control <- req
-	// Wait for ack to ensure the configuration is applied before returning
-	<-ack
+	select {
+	case _log.control <- req:
+		select {
+		case <-ack:
+		case <-_log.done:
+		}
+	case <-_log.done:
+	}
 }
 
 func (_log *Log) rotateByDate(day string) error {
@@ -553,12 +635,14 @@ func (_log *Log) rotateByDate(day string) error {
 	// Renombrar log_base.log → log_base-YYYY-MM-DD.log
 	if err := os.Rename(base, datedBase); err != nil {
 		reportInternalError("daily rotation rename: %v", err)
+		atomic.AddUint64(&_log.rotationErrorsSeq, 1)
 	}
 
 	// Crear nuevo archivo base.log vacío
 	newFile, err := os.OpenFile(base, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		reportInternalError("create base after daily rotation: %v", err)
+		atomic.AddUint64(&_log.rotationErrorsSeq, 1)
 		return err
 	}
 
@@ -608,11 +692,13 @@ func (_log *Log) logRotate() error {
 	firstBackup := target + ".0"
 	if err := os.Rename(base, firstBackup); err != nil {
 		reportInternalError("size rotation rename: %v", err)
+		atomic.AddUint64(&_log.rotationErrorsSeq, 1)
 	}
 
 	newFile, err := os.OpenFile(base, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		reportInternalError("create file after size rotation: %v", err)
+		atomic.AddUint64(&_log.rotationErrorsSeq, 1)
 		return err
 	}
 
@@ -683,11 +769,12 @@ func Start(logName, logPath, logLevel string, opts ...Option) (*Log, error) {
 	}
 
 	cfg := &config{
-		bufferSize: DefaultBufferSize,
-		batchSize:  DefaultBatchSize,
-		flushEvery: flushInterval,
-		bufferCap:  256 << 10, // default 256KB internal buffers for better large-log performance
-		drainBurst: 512,       // default larger burst for better parallel throughput
+		bufferSize:         DefaultBufferSize,
+		batchSize:          DefaultBatchSize,
+		flushEvery:         flushInterval,
+		bufferCap:          256 << 10, // default 256KB internal buffers for better large-log performance
+		drainBurst:         512,       // default larger burst for better parallel throughput
+		backpressurePolicy: BlockOnFull,
 	}
 	for _, opt := range opts {
 		opt(cfg)
@@ -703,22 +790,23 @@ func Start(logName, logPath, logLevel string, opts ...Option) (*Log, error) {
 	}
 
 	log := &Log{
-		name:            logName,
-		path:            logPath,
-		level:           logLevel,
-		maxSize:         0,
-		maxRotation:     0,
-		daily:           false,
-		lastDay:         time.Now().Format(lastDayFormat),
-		status:          true,
-		events:          make(chan logEvent, cfg.bufferSize),
-		buffer:          make([]byte, 0, internalCap),
-		writeBuf:        make([]byte, 0, internalCap),
-		flushEvery:      cfg.flushEvery,
-		done:            make(chan struct{}),
-		control:         make(chan controlReq, 8),
-		drainBurstLimit: cfg.drainBurst,
-		dropOnFull:      cfg.dropOnFull,
+		name:               logName,
+		path:               logPath,
+		level:              logLevel,
+		maxSize:            0,
+		maxRotation:        0,
+		daily:              false,
+		lastDay:            time.Now().Format(lastDayFormat),
+		status:             true,
+		events:             make(chan logEvent, cfg.bufferSize),
+		buffer:             make([]byte, 0, internalCap),
+		writeBuf:           make([]byte, 0, internalCap),
+		flushEvery:         cfg.flushEvery,
+		done:               make(chan struct{}),
+		control:            make(chan controlReq, 8),
+		drainBurstLimit:    cfg.drainBurst,
+		dropOnFull:         cfg.dropOnFull,
+		backpressurePolicy: cfg.backpressurePolicy,
 	}
 
 	log.file.Store(f)
@@ -835,7 +923,17 @@ func (_log *Log) startWriting() {
 		case ev, ok := <-_log.events:
 			if !ok {
 				_log.flush()
-				return
+				// Drain any pending control requests to avoid deadlocking concurrent callers
+				for {
+					select {
+					case req := <-_log.control:
+						if req.ack != nil {
+							close(req.ack)
+						}
+					default:
+						return
+					}
+				}
 			}
 			_log.writeEvent(ev)
 			_log.drainBurst()
@@ -931,7 +1029,10 @@ func (_log *Log) drainBurst() {
 	}
 	for i := 0; i < limit; i++ {
 		select {
-		case ev := <-_log.events:
+		case ev, ok := <-_log.events:
+			if !ok {
+				return
+			}
 			_log.writeEvent(ev)
 		default:
 			return
@@ -946,7 +1047,10 @@ func (_log *Log) doSyncInternal() {
 	// Drain pending events
 	for {
 		select {
-		case ev := <-_log.events:
+		case ev, ok := <-_log.events:
+			if !ok {
+				goto drainedDone
+			}
 			_log.writeEvent(ev)
 		default:
 			goto drainedDone
@@ -966,12 +1070,21 @@ drainedDone:
 // Public Sync: ordering barrier; does NOT drain from producers.
 // Sends a control message to the writer with the target seq and waits for ack.
 func (_log *Log) Sync() {
-	// Snapshot current enqueue sequence as the target barrier
-	target := atomic.LoadUint64(&_log.enqueueSeq)
+	if !_log.Status() {
+		return
+	}
+	// Snapshot current enqueued sequence as the target barrier
+	target := atomic.LoadUint64(&_log.enqueuedSeq)
 	ack := make(chan struct{})
 	req := controlReq{target: target, ack: ack}
-	_log.control <- req
-	<-ack
+	select {
+	case _log.control <- req:
+		select {
+		case <-ack:
+		case <-_log.done:
+		}
+	case <-_log.done:
+	}
 }
 
 func (_log *Log) flush() {
@@ -999,8 +1112,10 @@ func (_log *Log) flush() {
 	if needDaily {
 		if f := _log.getFile(); f != nil {
 			// Write remaining data before rotation
-			if written, _ := f.Write(remaining); written > 0 {
+			if written, err := f.Write(remaining); written > 0 {
 				_log.currentSize += int64(written)
+			} else if err != nil {
+				atomic.AddUint64(&_log.writeErrorsSeq, 1)
 			}
 		}
 
@@ -1020,8 +1135,10 @@ func (_log *Log) flush() {
 		}
 
 		if _log.maxSize <= 0 {
-			if written, _ := f.Write(remaining); written > 0 {
+			if written, err := f.Write(remaining); written > 0 {
 				_log.currentSize += int64(written)
+			} else if err != nil {
+				atomic.AddUint64(&_log.writeErrorsSeq, 1)
 			}
 			remaining = nil
 			break
@@ -1049,8 +1166,10 @@ func (_log *Log) flush() {
 		if int64(len(line)) > allowed {
 			if cur == 0 {
 				// escribir línea demasiado grande
-				if written, _ := f.Write(line); written > 0 {
+				if written, err := f.Write(line); written > 0 {
 					_log.currentSize += int64(written)
+				} else if err != nil {
+					atomic.AddUint64(&_log.writeErrorsSeq, 1)
 				}
 				remaining = remaining[len(line):]
 				_log.logRotate()
@@ -1061,8 +1180,10 @@ func (_log *Log) flush() {
 			continue
 		}
 
-		if written, _ := f.Write(line); written > 0 {
+		if written, err := f.Write(line); written > 0 {
 			_log.currentSize += int64(written)
+		} else if err != nil {
+			atomic.AddUint64(&_log.writeErrorsSeq, 1)
 		}
 		remaining = remaining[len(line):]
 	}
@@ -1366,6 +1487,14 @@ func (l *Log) NewEvent(level string) *Event {
 	if !l.shouldLog(level) {
 		return nil
 	}
+	if l.backpressurePolicy == DropNewest || l.backpressurePolicy == DropDebugOnly {
+		if len(l.events) >= cap(l.events) {
+			if l.backpressurePolicy == DropNewest || (level == Level.DEBUG || level == Level.INFO) {
+				atomic.AddUint64(&l.droppedSeq, 1)
+				return nil
+			}
+		}
+	}
 	e := eventPool.Get().(*Event)
 	e.logger = l
 	e.level = level
@@ -1621,17 +1750,7 @@ func (e *Event) Send() {
 }
 
 func (e *Event) sendEvent() {
-	seq := atomic.AddUint64(&e.logger.enqueueSeq, 1)
-	if e.logger.dropOnFull {
-		select {
-		case e.logger.events <- logEvent{level: e.level, msgBytes: e.buf, kind: 2, seq: seq}:
-		default:
-			atomic.AddUint64(&e.logger.droppedSeq, 1)
-			putJSONBuf(e.buf)
-		}
-	} else {
-		e.logger.events <- logEvent{level: e.level, msgBytes: e.buf, kind: 2, seq: seq}
-	}
+	e.logger.enqueueEvent(logEvent{level: e.level, msgBytes: e.buf, kind: 2})
 	e.buf = nil
 	e.logger = nil
 	eventPool.Put(e)

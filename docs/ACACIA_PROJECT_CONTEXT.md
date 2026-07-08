@@ -34,24 +34,24 @@ The current engineering effort focuses on improving:
 Current phase:
 
 ```text
-Fase 04 — Redacción y seguridad de datos sensibles
+Fase 05 — Backpressure, cola y memoria
 ```
 
 Current status:
 
 ```text
-Fase 04 completed / pending review.
+Fase 05 completed / pending review.
 ```
 
 Next phase:
 
 ```text
-Fase 05 — Backpressure, cola y memoria
+Fase 06 — Filesystem, permisos y rotación segura
 ```
 
 Important status note:
 
-Before starting Fase 05, the sensitive data redaction mechanism must be fully verified and documented under baseline benchmarks.
+Before starting Fase 06, the backpressure mechanism, queue policies, and memory optimizations must be fully verified and documented under baseline benchmarks.
 
 ---
 
@@ -286,17 +286,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review and commit Fase 04 redaction/security artifacts, then prepare Fase 05.
+Review and commit Fase 05 backpressure/queue/memory artifacts, then prepare Fase 06.
 ```
 
 Recommended commit message:
 
 ```text
-feat: add sensitive data redaction for structured events
+perf: add explicit backpressure policies and queue metrics
 ```
 
 After that, begin:
 
 ```text
-Fase 05 — Backpressure, cola y memoria
+Fase 06 — Filesystem, permisos y rotación segura
 ```
