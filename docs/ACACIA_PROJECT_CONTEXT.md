@@ -34,24 +34,24 @@ The current engineering effort focuses on improving:
 Current phase:
 
 ```text
-Fase 06 — Filesystem, permisos y rotación segura
+Fase 07 — Semántica formal de Sync y Close
 ```
 
 Current status:
 
 ```text
-Fase 06 completed / pending review.
+Fase 07 completed / pending review.
 ```
 
 Next phase:
 
 ```text
-Fase 07 — Semántica formal de Sync y Close
+Fase 08 — Documentación, migración y release
 ```
 
 Important status note:
 
-Before starting Fase 07, the filesystem hardening, permissions policy, symlink protections, and secure rotation behavior must be fully verified and documented.
+Before starting Fase 08, the formal semantics of Sync and Close, idempotency, thread-safety, and zero-loss guarantees must be fully verified and documented.
 
 ---
 
@@ -286,17 +286,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review and commit Fase 06 filesystem/permissions/rotation artifacts, then prepare Fase 07.
+Review and commit Fase 07 Sync/Close semantics artifacts, then prepare Fase 08.
 ```
 
 Recommended commit message:
 
 ```text
-security: harden filesystem paths permissions and rotation
+fix: formalize Sync and Close semantics
 ```
 
 After that, begin:
 
 ```text
-Fase 07 — Semántica formal de Sync y Close
+Fase 08 — Documentación, migración y release
 ```

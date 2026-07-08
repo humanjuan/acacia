@@ -78,6 +78,12 @@ const (
 	DropDebugOnly
 )
 
+const (
+	stateOpen uint32 = iota
+	stateClosing
+	stateClosed
+)
+
 var (
 	ErrInvalidLogFilename  = errors.New("invalid log filename")
 	ErrInvalidLogDirectory = errors.New("invalid log directory")
@@ -279,6 +285,7 @@ type Log struct {
 	rotationErrorsSeq  uint64
 	fileMode           os.FileMode
 	dirMode            os.FileMode
+	state              uint32
 }
 
 // controlReq is a control message for the writer goroutine.
@@ -289,6 +296,7 @@ type controlReq struct {
 	ack         chan struct{}
 	setRotation *rotationConfig
 	setDaily    *bool
+	isClose     bool
 }
 
 type rotationConfig struct {
@@ -392,7 +400,7 @@ func (_log *Log) StructuredJSON(state bool) {
 }
 
 func (_log *Log) Status() bool {
-	return _log.status
+	return atomic.LoadUint32(&_log.state) == stateOpen
 }
 
 type Stats struct {
@@ -484,17 +492,37 @@ func (_log *Log) shouldLog(level string) bool {
 }
 
 func (_log *Log) enqueueEvent(ev logEvent) {
+	if atomic.LoadUint32(&_log.state) != stateOpen {
+		atomic.AddUint64(&_log.droppedSeq, 1)
+		if ev.kind == 2 {
+			putJSONBuf(ev.msgBytes)
+		}
+		return
+	}
+
 	ev.seq = atomic.AddUint64(&_log.enqueueSeq, 1)
 
 	switch _log.backpressurePolicy {
 	case BlockOnFull:
-		_log.events <- ev
-		atomic.AddUint64(&_log.enqueuedSeq, 1)
+		select {
+		case _log.events <- ev:
+			atomic.AddUint64(&_log.enqueuedSeq, 1)
+		case <-_log.done:
+			atomic.AddUint64(&_log.droppedSeq, 1)
+			if ev.kind == 2 {
+				putJSONBuf(ev.msgBytes)
+			}
+		}
 
 	case DropNewest:
 		select {
 		case _log.events <- ev:
 			atomic.AddUint64(&_log.enqueuedSeq, 1)
+		case <-_log.done:
+			atomic.AddUint64(&_log.droppedSeq, 1)
+			if ev.kind == 2 {
+				putJSONBuf(ev.msgBytes)
+			}
 		default:
 			atomic.AddUint64(&_log.droppedSeq, 1)
 			if ev.kind == 2 {
@@ -506,6 +534,11 @@ func (_log *Log) enqueueEvent(ev logEvent) {
 		select {
 		case _log.events <- ev:
 			atomic.AddUint64(&_log.enqueuedSeq, 1)
+		case <-_log.done:
+			atomic.AddUint64(&_log.droppedSeq, 1)
+			if ev.kind == 2 {
+				putJSONBuf(ev.msgBytes)
+			}
 		default:
 			// Queue is full, evict oldest
 			select {
@@ -514,14 +547,24 @@ func (_log *Log) enqueueEvent(ev logEvent) {
 				if oldEv.kind == 2 {
 					putJSONBuf(oldEv.msgBytes)
 				}
+			case <-_log.done:
+				atomic.AddUint64(&_log.droppedSeq, 1)
+				if ev.kind == 2 {
+					putJSONBuf(ev.msgBytes)
+				}
+				return
 			default:
 			}
 			// Try enqueuing again
 			select {
 			case _log.events <- ev:
 				atomic.AddUint64(&_log.enqueuedSeq, 1)
+			case <-_log.done:
+				atomic.AddUint64(&_log.droppedSeq, 1)
+				if ev.kind == 2 {
+					putJSONBuf(ev.msgBytes)
+				}
 			default:
-				// Fallback to dropping newest
 				atomic.AddUint64(&_log.droppedSeq, 1)
 				if ev.kind == 2 {
 					putJSONBuf(ev.msgBytes)
@@ -534,6 +577,11 @@ func (_log *Log) enqueueEvent(ev logEvent) {
 			select {
 			case _log.events <- ev:
 				atomic.AddUint64(&_log.enqueuedSeq, 1)
+			case <-_log.done:
+				atomic.AddUint64(&_log.droppedSeq, 1)
+				if ev.kind == 2 {
+					putJSONBuf(ev.msgBytes)
+				}
 			default:
 				atomic.AddUint64(&_log.droppedSeq, 1)
 				if ev.kind == 2 {
@@ -541,8 +589,15 @@ func (_log *Log) enqueueEvent(ev logEvent) {
 				}
 			}
 		} else {
-			_log.events <- ev
-			atomic.AddUint64(&_log.enqueuedSeq, 1)
+			select {
+			case _log.events <- ev:
+				atomic.AddUint64(&_log.enqueuedSeq, 1)
+			case <-_log.done:
+				atomic.AddUint64(&_log.droppedSeq, 1)
+				if ev.kind == 2 {
+					putJSONBuf(ev.msgBytes)
+				}
+			}
 		}
 	}
 }
@@ -773,29 +828,36 @@ func (_log *Log) logRotate() error {
 
 func (_log *Log) Close() {
 	_log.closeOnce.Do(func() {
+		// 1. Transition state to stateClosing
+		atomic.StoreUint32(&_log.state, stateClosing)
 
+		// 2. Close done channel to release any blocked producers
 		if _log.done != nil {
 			close(_log.done)
 		}
 
+		// 3. Stop time ticker
 		if _log.timeTicker != nil {
 			_log.timeTicker.Stop()
 		}
 
-		if _log.events != nil {
-			close(_log.events)
+		// 4. Send close control event to wait for writer to drain and flush
+		ack := make(chan struct{})
+		req := controlReq{ack: ack, isClose: true}
+		select {
+		case _log.control <- req:
+			select {
+			case <-ack:
+			case <-time.After(5 * time.Second): // safety fallback
+			}
+		case <-time.After(1 * time.Second): // safety fallback if control channel is blocked/full
 		}
 
+		// 5. Wait for all background goroutines (writer, timestamp updater)
 		_log.wg.Wait()
 
-		if f := _log.getFile(); f != nil {
-			if err := f.Sync(); err != nil {
-				reportInternalError("final file sync error: %v", err)
-			}
-			if err := f.Close(); err != nil {
-				reportInternalError("final file close error: %v", err)
-			}
-		}
+		// 6. Transition state to stateClosed
+		atomic.StoreUint32(&_log.state, stateClosed)
 	})
 }
 
@@ -868,6 +930,7 @@ func Start(logName, logPath, logLevel string, opts ...Option) (*Log, error) {
 		backpressurePolicy: cfg.backpressurePolicy,
 		fileMode:           cfg.fileMode,
 		dirMode:            cfg.dirMode,
+		state:              stateOpen,
 	}
 
 	log.file.Store(f)
@@ -1003,6 +1066,46 @@ func (_log *Log) startWriting() {
 			_log.flush()
 
 		case req := <-_log.control:
+			if req.isClose {
+				// Drain remaining events
+				for {
+					select {
+					case ev := <-_log.events:
+						_log.writeEvent(ev)
+						_log.drainBurst()
+					default:
+						goto drained
+					}
+				}
+			drained:
+				_log.flush()
+
+				if f := _log.getFile(); f != nil {
+					if err := f.Sync(); err != nil {
+						reportInternalError("final file sync error: %v", err)
+					}
+					if err := f.Close(); err != nil {
+						reportInternalError("final file close error: %v", err)
+					}
+				}
+
+				if req.ack != nil {
+					close(req.ack)
+				}
+
+				// Drain any other remaining control requests to avoid deadlocks
+				for {
+					select {
+					case req2 := <-_log.control:
+						if req2.ack != nil {
+							close(req2.ack)
+						}
+					default:
+						return
+					}
+				}
+			}
+
 			if req.setRotation != nil {
 				backup := req.setRotation.backup
 				if backup < 1 {
@@ -1131,7 +1234,7 @@ drainedDone:
 // Public Sync: ordering barrier; does NOT drain from producers.
 // Sends a control message to the writer with the target seq and waits for ack.
 func (_log *Log) Sync() {
-	if !_log.Status() {
+	if atomic.LoadUint32(&_log.state) != stateOpen {
 		return
 	}
 	// Snapshot current enqueued sequence as the target barrier
