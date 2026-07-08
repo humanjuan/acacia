@@ -1309,7 +1309,7 @@ func (_log *Log) setFile(f *os.File) {
 	}
 }
 
-// --- Event Builder API (Fase 02 & Fase 03) ---
+// --- Event Builder API (Fase 02, Fase 03 & Fase 04) ---
 
 type Event struct {
 	logger *Log
@@ -1322,6 +1322,44 @@ var eventPool = sync.Pool{
 	New: func() interface{} {
 		return &Event{}
 	},
+}
+
+func isSensitiveKey(key string) bool {
+	var buf [64]byte
+	w := 0
+	for i := 0; i < len(key); i++ {
+		c := key[i]
+		if c == '-' || c == '_' || c == '.' {
+			continue
+		}
+		if w >= 64 {
+			return false
+		}
+		if c >= 'A' && c <= 'Z' {
+			buf[w] = c + ('a' - 'A')
+		} else {
+			buf[w] = c
+		}
+		w++
+	}
+	normalized := buf[:w]
+
+	switch string(normalized) {
+	case "authorization", "cookie", "setcookie", "token", "accesstoken", "refreshtoken",
+		"password", "passwd", "pwd", "apikey", "privatekey", "clientsecret", "secret",
+		"bearer", "jwt", "session", "sessionid", "csrf", "xsrf", "xapikey":
+		return true
+	default:
+		return false
+	}
+}
+
+func (e *Event) appendRedactedField(key string) *Event {
+	e.buf = ensureJSONCapacity(e.buf, len(key)+16)
+	e.buf = append(e.buf, `,"`...)
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, `":"[REDACTED]"`...)
+	return e
 }
 
 func (l *Log) NewEvent(level string) *Event {
@@ -1382,6 +1420,9 @@ func (e *Event) Str(key, val string) *Event {
 	if e == nil {
 		return nil
 	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
+	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+len(val)+6)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
@@ -1395,6 +1436,9 @@ func (e *Event) Int(key string, val int) *Event {
 	if e == nil {
 		return nil
 	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
+	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+24)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
@@ -1406,6 +1450,9 @@ func (e *Event) Int(key string, val int) *Event {
 func (e *Event) Int64(key string, val int64) *Event {
 	if e == nil {
 		return nil
+	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+24)
 	e.buf = append(e.buf, `,"`...)
@@ -1419,6 +1466,9 @@ func (e *Event) Uint64(key string, val uint64) *Event {
 	if e == nil {
 		return nil
 	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
+	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+24)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
@@ -1430,6 +1480,9 @@ func (e *Event) Uint64(key string, val uint64) *Event {
 func (e *Event) Bool(key string, val bool) *Event {
 	if e == nil {
 		return nil
+	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+10)
 	e.buf = append(e.buf, `,"`...)
@@ -1447,6 +1500,9 @@ func (e *Event) Float64(key string, val float64) *Event {
 	if e == nil {
 		return nil
 	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
+	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+28)
 	e.buf = append(e.buf, `,"`...)
 	e.buf = append(e.buf, key...)
@@ -1455,24 +1511,36 @@ func (e *Event) Float64(key string, val float64) *Event {
 	return e
 }
 
-func (e *Event) Err(err error) *Event {
+func (e *Event) ErrKey(key string, err error) *Event {
 	if e == nil {
 		return nil
 	}
 	if err == nil {
 		return e
 	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
+	}
 	errStr := err.Error()
-	e.buf = ensureJSONCapacity(e.buf, len(errStr)+12)
-	e.buf = append(e.buf, `,"error":"`...)
+	e.buf = ensureJSONCapacity(e.buf, len(key)+len(errStr)+12)
+	e.buf = append(e.buf, `,"`...)
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, `":"`...)
 	e.buf = escapeJSONInto(e.buf, errStr)
 	e.buf = append(e.buf, '"')
 	return e
 }
 
+func (e *Event) Err(err error) *Event {
+	return e.ErrKey("error", err)
+}
+
 func (e *Event) Dur(key string, val time.Duration) *Event {
 	if e == nil {
 		return nil
+	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+24)
 	e.buf = append(e.buf, `,"`...)
@@ -1485,6 +1553,9 @@ func (e *Event) Dur(key string, val time.Duration) *Event {
 func (e *Event) Time(key string, val time.Time) *Event {
 	if e == nil {
 		return nil
+	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+40)
 	e.buf = append(e.buf, `,"`...)

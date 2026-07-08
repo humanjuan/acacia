@@ -34,24 +34,24 @@ The current engineering effort focuses on improving:
 Current phase:
 
 ```text
-Fase 03 — Encoder JSON append-only
+Fase 04 — Redacción y seguridad de datos sensibles
 ```
 
 Current status:
 
 ```text
-Fase 03 completed / pending review.
+Fase 04 completed / pending review.
 ```
 
 Next phase:
 
 ```text
-Fase 04 — Redacción y seguridad de datos sensibles
+Fase 05 — Backpressure, cola y memoria
 ```
 
 Important status note:
 
-Before starting Fase 04, the append-only JSON encoder must be fully verified and documented under baseline benchmarks.
+Before starting Fase 05, the sensitive data redaction mechanism must be fully verified and documented under baseline benchmarks.
 
 ---
 
@@ -286,17 +286,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review and commit Fase 03 append-only JSON encoder artifacts, then prepare Fase 04.
+Review and commit Fase 04 redaction/security artifacts, then prepare Fase 05.
 ```
 
 Recommended commit message:
 
 ```text
-perf: add append-only JSON encoder for structured events
+feat: add sensitive data redaction for structured events
 ```
 
 After that, begin:
 
 ```text
-Fase 04 — Redacción y seguridad de datos sensibles
+Fase 05 — Backpressure, cola y memoria
 ```
