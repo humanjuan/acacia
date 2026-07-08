@@ -5,6 +5,7 @@ Este directorio almacena los reportes de cierre de cada fase de optimización y 
 ## Índice de Reportes
 * [Reporte de Fase 00: Organización del Repositorio](phase-00-repo-organization-report.md)
 * [Reporte de Fase 01: Baseline reproducible](phase-01-baseline-report.md)
+* [Reporte de Fase 02: API estructurada tipada](phase-02-typed-api-report.md)
 
 ## Hallazgos de Seguridad (Security Findings)
 * [SEC-01-001: Fallo de escape de caracteres de control en JSON estructurado](security/SEC-01-001-json-control-characters-escaping-failure.md)

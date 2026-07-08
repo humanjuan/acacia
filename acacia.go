@@ -1284,3 +1284,245 @@ func (_log *Log) setFile(f *os.File) {
 		_log.file.Store((*os.File)(nil))
 	}
 }
+
+// --- Event Builder API (Fase 02) ---
+
+type Event struct {
+	logger *Log
+	level  string
+	buf    []byte
+	done   bool
+}
+
+var eventPool = sync.Pool{
+	New: func() interface{} {
+		return &Event{}
+	},
+}
+
+func (l *Log) NewEvent(level string) *Event {
+	if !l.shouldLog(level) {
+		return nil
+	}
+	e := eventPool.Get().(*Event)
+	e.logger = l
+	e.level = level
+	e.done = false
+
+	e.buf = getJSONBufCap(256)[:0]
+
+	var tsBytes []byte
+	if cachedTS := l.cachedTime.Load(); cachedTS != nil {
+		tsBytes = cachedTS.([]byte)
+	}
+	levelBytes := levelBytesFor(level)
+
+	e.buf = append(e.buf, '{')
+	if len(tsBytes) > 0 {
+		e.buf = append(e.buf, `"ts":"`...)
+		e.buf = append(e.buf, tsBytes...)
+		e.buf = append(e.buf, `",`...)
+	}
+	e.buf = append(e.buf, `"level":"`...)
+	e.buf = append(e.buf, levelBytes...)
+	e.buf = append(e.buf, '"')
+	return e
+}
+
+func (l *Log) Event(level string) *Event {
+	return l.NewEvent(level)
+}
+
+func (l *Log) InfoEvent() *Event {
+	return l.NewEvent(Level.INFO)
+}
+
+func (l *Log) WarnEvent() *Event {
+	return l.NewEvent(Level.WARN)
+}
+
+func (l *Log) ErrorEvent() *Event {
+	return l.NewEvent(Level.ERROR)
+}
+
+func (l *Log) DebugEvent() *Event {
+	return l.NewEvent(Level.DEBUG)
+}
+
+func (l *Log) CriticalEvent() *Event {
+	return l.NewEvent(Level.CRITICAL)
+}
+
+func (e *Event) Str(key, val string) *Event {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, `,"`...)
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, `":"`...)
+	e.buf = escapeJSONInto(e.buf, val)
+	e.buf = append(e.buf, '"')
+	return e
+}
+
+func (e *Event) Int(key string, val int) *Event {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, `,"`...)
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, `":`...)
+	e.buf = strconv.AppendInt(e.buf, int64(val), 10)
+	return e
+}
+
+func (e *Event) Int64(key string, val int64) *Event {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, `,"`...)
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, `":`...)
+	e.buf = strconv.AppendInt(e.buf, val, 10)
+	return e
+}
+
+func (e *Event) Uint64(key string, val uint64) *Event {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, `,"`...)
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, `":`...)
+	e.buf = strconv.AppendUint(e.buf, val, 10)
+	return e
+}
+
+func (e *Event) Bool(key string, val bool) *Event {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, `,"`...)
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, `":`...)
+	if val {
+		e.buf = append(e.buf, "true"...)
+	} else {
+		e.buf = append(e.buf, "false"...)
+	}
+	return e
+}
+
+func (e *Event) Float64(key string, val float64) *Event {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, `,"`...)
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, `":`...)
+	e.buf = strconv.AppendFloat(e.buf, val, 'f', -1, 64)
+	return e
+}
+
+func (e *Event) Err(err error) *Event {
+	if e == nil {
+		return nil
+	}
+	if err == nil {
+		return e
+	}
+	e.buf = append(e.buf, `,"error":"`...)
+	e.buf = escapeJSONInto(e.buf, err.Error())
+	e.buf = append(e.buf, '"')
+	return e
+}
+
+func (e *Event) Dur(key string, val time.Duration) *Event {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, `,"`...)
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, `":`...)
+	e.buf = strconv.AppendInt(e.buf, int64(val), 10)
+	return e
+}
+
+func (e *Event) Time(key string, val time.Time) *Event {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, `,"`...)
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, `":"`...)
+	e.buf = val.AppendFormat(e.buf, time.RFC3339Nano)
+	e.buf = append(e.buf, '"')
+	return e
+}
+
+func (e *Event) Secret(key, val string) *Event {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, `,"`...)
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, `":"[REDACTED]"`...)
+	return e
+}
+
+func (e *Event) StrRedacted(key, val string) *Event {
+	if e == nil {
+		return nil
+	}
+	e.buf = append(e.buf, `,"`...)
+	e.buf = append(e.buf, key...)
+	e.buf = append(e.buf, `":"[REDACTED]"`...)
+	return e
+}
+
+func (e *Event) Msg(msg string) {
+	if e == nil {
+		return
+	}
+	if e.done {
+		return
+	}
+	e.done = true
+
+	e.buf = append(e.buf, `,"msg":"`...)
+	e.buf = escapeJSONInto(e.buf, msg)
+	e.buf = append(e.buf, '"', '}', '\n')
+
+	e.sendEvent()
+}
+
+func (e *Event) Send() {
+	if e == nil {
+		return
+	}
+	if e.done {
+		return
+	}
+	e.done = true
+
+	e.buf = append(e.buf, '}', '\n')
+
+	e.sendEvent()
+}
+
+func (e *Event) sendEvent() {
+	seq := atomic.AddUint64(&e.logger.enqueueSeq, 1)
+	if e.logger.dropOnFull {
+		select {
+		case e.logger.events <- logEvent{level: e.level, msgBytes: e.buf, kind: 2, seq: seq}:
+		default:
+			atomic.AddUint64(&e.logger.droppedSeq, 1)
+			putJSONBuf(e.buf)
+		}
+	} else {
+		e.logger.events <- logEvent{level: e.level, msgBytes: e.buf, kind: 2, seq: seq}
+	}
+	e.buf = nil
+	e.logger = nil
+	eventPool.Put(e)
+}

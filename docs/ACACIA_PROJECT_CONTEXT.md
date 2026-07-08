@@ -34,24 +34,24 @@ The current engineering effort focuses on improving:
 Current phase:
 
 ```text
-Fase 01 — Baseline reproducible
+Fase 02 — API estructurada tipada
 ```
 
 Current status:
 
 ```text
-Fase 01 completed / pending review. SEC-01-001 was detected and remediated during Phase 01C.
+Fase 02 completed / pending review.
 ```
 
 Next phase:
 
 ```text
-Fase 02 — API estructurada tipada
+Fase 03 — Encoder JSON append-only
 ```
 
 Important status note:
 
-Before starting Fase 02, the baseline reproducible metrics must be established and documented cleanly in the public reports folder.
+Before starting Fase 03, the Fluent Builder API must be fully verified and documented under baseline benchmarks.
 
 ---
 
@@ -286,17 +286,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review and commit Fase 01 baseline/fuzzing artifacts, then prepare Fase 02.
+Review and commit Fase 02 builder API and testing artifacts, then prepare Fase 03.
 ```
 
 Recommended commit message:
 
 ```text
-fix: harden Acacia JSON escaping with fuzz baseline
+feat: add typed structured event builder
 ```
 
 After that, begin:
 
 ```text
-Fase 02 — API estructurada tipada
+Fase 03 — Encoder JSON append-only
 ```
