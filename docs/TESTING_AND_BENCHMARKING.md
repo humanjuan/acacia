@@ -91,3 +91,52 @@ Al perfilar código para diagnosticar cuellos de botella:
    ```bash
    go tool pprof -http=:8080 .private/pprof/cpu.out
    ```
+
+---
+
+## 7. Protocolos de Testing Hard (Fase 09)
+
+Para la validación del release candidate y el análisis de regresiones, se establece un protocolo estricto de testing que complementa las herramientas básicas.
+
+### Comparación Estadística con Benchstat
+Una comparación manual o mediante scripts no especializados puede ignorar fluctuaciones estadísticas. Se requiere:
+1. Instalar la herramienta oficial:
+   ```bash
+   go install golang.org/x/perf/cmd/benchstat@latest
+   ```
+2. Capturar el benchmark del baseline (`v2.3.0` o `old`):
+   ```bash
+   git checkout v2.3.0
+   go test ./... -bench=. -benchmem -run '^$' -count=20 > .private/bench/old.txt
+   ```
+3. Capturar el benchmark del código optimizado (`new`):
+   ```bash
+   git checkout dev
+   go test ./... -bench=. -benchmem -run '^$' -count=20 > .private/bench/new.txt
+   ```
+4. Ejecutar la comparación estadística:
+   ```bash
+   benchstat .private/bench/old.txt .private/bench/new.txt
+   ```
+
+### Pruebas de Soak (Remojo)
+Para descartar fugas de memoria o degradaciones en periodos de ejecución prolongados, se implementan soak tests bajo la variable `ACACIA_HARD_SOAK=1`:
+```bash
+ACACIA_HARD_SOAK=1 go test ./test -run TestPhase09Soak -v -timeout=15m
+```
+
+### Matriz de Escenarios Evaluados
+Todos los perfiles de CPU, Memoria y Trazas deben generarse de forma privada:
+```bash
+go test -cpuprofile=.private/pprof/cpu.out -memprofile=.private/pprof/mem.out -bench=. -run=^$ ./...
+```
+
+La matriz a cubrir incluye mediciones aisladas para:
+* **Escritura plana**: `text/plain` y `bytes`.
+* **I/O y buffer**: Aislamiento del `io.Writer`.
+* **JSON**: Serialización tradicional vs Builder.
+* **Seguridad**: Redaction en el hot path.
+* **Flujo**: Backpressure y Sync/Close.
+* **Rotación**: Rotación por tamaño, daily rotation determinística y backup rotation.
+* **Integración**: Overhead del OTel adapter opcional.
+

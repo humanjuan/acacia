@@ -34,24 +34,27 @@ The current engineering effort focuses on improving:
 Current phase:
 
 ```text
-Fase 08 — Documentación, migración y release
+Fase 09 — Performance Recovery, Architecture Review & OpenTelemetry Compatibility
 ```
 
 Current status:
 
 ```text
-Fase 08 completed / pending review.
+Planned / ready to start diagnostics
 ```
 
-Next phase:
+Next action:
 
 ```text
-Release candidate review / tag decision.
+Run Phase 09 diagnostics to identify the concrete sources of hot-path and large-payload regressions before implementing optimizations.
 ```
 
-Important status note:
-
-Before tagging a release, verify README claims, migration notes, changelog, release notes, security findings, and reproducible benchmark commands.
+Summary of hard performance validation findings:
+- **Stability**: Release candidate is functionally stable, validated with the race detector under the test suite, and passes all stress and fuzzing suites.
+- **Regressions**: Performance regressions detected (+21% to +23% latency on raw string/bytes, major regression on 1KB payloads with increased B/op).
+- **Diagnostics**: Custom Python script used for comparison due to lack of `benchstat` in temporary SSD environment; running `benchstat` remains a strict prerequisite for repeating/completing validation.
+- **Gaps**: Isolation of the `io.Writer` layer, backup rotation cardinality benchmarks, and daily rotation metrics are missing.
+- **OpenTelemetry**: Compatibility evaluation is planned as an optional adapter with no measurable overhead in documented benchmarks on the core logger when disabled.
 
 ---
 
@@ -202,6 +205,7 @@ Fase 05 — Backpressure, cola y memoria
 Fase 06 — Filesystem, permisos y rotación segura
 Fase 07 — Semántica formal de Sync y Close
 Fase 08 — Documentación, migración y release
+Fase 09 — Performance Recovery, Architecture Review & OpenTelemetry Compatibility
 ```
 
 ---
@@ -286,17 +290,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review and commit Fase 08 documentation/migration/release artifacts, then decide release tag.
+Begin Phase 09 by implementing and running diagnostic micro-benchmarks to isolate atomic operations and buffer growth overheads.
 ```
 
 Recommended commit message:
 
 ```text
-docs: finalize migration and release documentation
+docs: plan Phase 09 performance recovery and hard validation
 ```
 
 After that:
 
 ```text
-Prepare release candidate validation and tag only after maintainer approval.
+Review architecture options in ADR 0003 and align on the recovery implementation plan with the maintainer.
 ```

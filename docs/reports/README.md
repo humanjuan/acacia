@@ -12,6 +12,8 @@ Este directorio almacena los reportes de cierre de cada fase de optimización y 
 * [Reporte de Fase 06: Filesystem, permisos y rotación segura](phase-06-filesystem-permissions-rotation-report.md)
 * [Reporte de Fase 07: Semántica formal de Sync y Close](phase-07-sync-close-semantics-report.md)
 * [Reporte de Fase 08: Documentación, migración y release](phase-08-docs-migration-release-report.md)
+* [Reporte de Validación Hard de Performance del Release Candidate](release-candidate-hard-performance-validation-report.md)
+
 
 ## Hallazgos de Seguridad (Security Findings)
 * [SEC-01-001: Fallo de escape de caracteres de control en JSON estructurado](security/SEC-01-001-json-control-characters-escaping-failure.md)

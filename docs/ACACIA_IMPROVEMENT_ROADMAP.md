@@ -1,6 +1,6 @@
 # Plan de Mejora de Acacia (Improvement Roadmap)
 
-Este documento detalla el plan incremental de 9 fases (00 a 08) estructurado para transformar el logger Acacia en un motor de telemetría de alto rendimiento, Zero-Allocation, seguro y robusto frente a fallos.
+Este documento detalla el plan incremental de 10 fases (00 a 09) estructurado para transformar el logger Acacia en un motor de telemetría de alto rendimiento, Zero-Allocation, seguro y robusto frente a fallos.
 
 ---
 
@@ -180,3 +180,32 @@ Alinear el README público con el nuevo rendimiento real y reproducible, documen
 ### Criterio de aceptación
 * README público actualizado, transparente y técnicamente verificable.
 * Aprobación del conjunto completo de pruebas e informe final firmado.
+
+---
+
+## Fase 09 — Performance Recovery, Architecture Review & OpenTelemetry Compatibility
+
+### Estado
+Planned / Next
+
+### Objetivo
+Detectar las causas de las regresiones de rendimiento detectadas en la validación del release candidate y aplicar optimizaciones o reestructuraciones parciales de arquitectura que permitan recuperar la performance (particularmente en payloads grandes de 1KB y hot path de string/bytes) manteniendo las garantías de seguridad, estabilidad y compatibilidad con la rama v2.x. Adicionalmente, planificar y evaluar de forma opcional y aislada la compatibilidad con OpenTelemetry.
+
+### Motivación
+La validación en SSD detectó regresiones de latencia (+21-23% en hot path de strings/bytes y hasta +92% en payloads de 1KB) causadas por la sobrecarga de controles atómicos y la estrategia de crecimiento del búfer. Es imperativo corregir estas regresiones antes del release definitivo para cumplir con las promesas de rendimiento del logger.
+
+### Entregables
+* Benchmarks de diagnóstico ejecutados y reportados de forma sanitizada.
+* Archivos de perfilado CPU/Memoria almacenados localmente en `.private/pprof/`.
+* Reporte público sanitizado del diagnóstico técnico de rendimiento.
+* Registro de decisión de arquitectura (ADR) finalizado bajo `docs/adr/`.
+* Plan de testing hard reproducible configurado con benchstat.
+* Recuperación de al menos el 50% de la regresión de hot path y reducción del 60% de B/op en 1KB.
+* Reporte de validación final y recomendación de release actualizada.
+
+### Criterio de salida
+* Cumplimiento de los targets de recuperación de performance.
+* Fuzzing, race detector y stress tests sin advertencias ni errores.
+* Compatibilidad con APIs públicas v2.x totalmente conservada.
+* Evaluación de compatibilidad con OpenTelemetry concluida sin overhead medible en benchmarks documentados cuando esté deshabilitada.
+
