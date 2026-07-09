@@ -34,24 +34,24 @@ The current engineering effort focuses on improving:
 Current phase:
 
 ```text
-Fase 07 — Semántica formal de Sync y Close
+Fase 08 — Documentación, migración y release
 ```
 
 Current status:
 
 ```text
-Fase 07 completed / pending review.
+Fase 08 completed / pending review.
 ```
 
 Next phase:
 
 ```text
-Fase 08 — Documentación, migración y release
+Release candidate review / tag decision.
 ```
 
 Important status note:
 
-Before starting Fase 08, the formal semantics of Sync and Close, idempotency, thread-safety, and zero-loss guarantees must be fully verified and documented.
+Before tagging a release, verify README claims, migration notes, changelog, release notes, security findings, and reproducible benchmark commands.
 
 ---
 
@@ -286,17 +286,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review and commit Fase 07 Sync/Close semantics artifacts, then prepare Fase 08.
+Review and commit Fase 08 documentation/migration/release artifacts, then decide release tag.
 ```
 
 Recommended commit message:
 
 ```text
-fix: formalize Sync and Close semantics
+docs: finalize migration and release documentation
 ```
 
-After that, begin:
+After that:
 
 ```text
-Fase 08 — Documentación, migración y release
+Prepare release candidate validation and tag only after maintainer approval.
 ```

@@ -37,5 +37,5 @@ Para proteger la integridad del proyecto y de la infraestructura local:
   * [Runbook de Preparación para Release](runbooks/release-readiness-runbook.md)
  
 ## Estado Actual
-* **Fase Activa:** `Fase 00 - Organización del Repositorio` (Cierre documental).
-* **Próxima Fase:** `Fase 01 - Baseline Reproducible`.
+* **Fase Activa:** `Fase 08 — Documentación, migración y release` (Candidato a release).
+* **Próxima Fase:** `Release candidate review / tag decision.`
