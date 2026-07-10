@@ -13,6 +13,8 @@ Este directorio almacena los reportes de cierre de cada fase de optimización y 
 * [Reporte de Fase 07: Semántica formal de Sync y Close](phase-07-sync-close-semantics-report.md)
 * [Reporte de Fase 08: Documentación, migración y release](phase-08-docs-migration-release-report.md)
 * [Reporte de Validación Hard de Performance del Release Candidate](release-candidate-hard-performance-validation-report.md)
+* [Reporte de Diagnóstico de Fase 09](phase-09-diagnostics-report.md)
+
 
 
 ## Hallazgos de Seguridad (Security Findings)
