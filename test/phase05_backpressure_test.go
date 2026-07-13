@@ -119,10 +119,23 @@ func TestBackpressureDropOldest(t *testing.T) {
 		t.Fatalf("failed to start logger: %v", err)
 	}
 
-	// Write 100,000 logs to force eviction of oldest logs
-	for i := 0; i < 100000; i++ {
-		lg.Info(fmt.Sprintf("seq=%d", i))
+	// Write logs to force eviction of oldest logs
+	// We use concurrent workers to ensure queue saturation, but keep messages identifiable
+	const numWorkers = 5
+	var wg sync.WaitGroup
+	wg.Add(numWorkers)
+	for w := 0; w < numWorkers; w++ {
+		go func(workerID int) {
+			defer wg.Done()
+			for i := 0; i < 30000; i++ {
+				lg.Info(fmt.Sprintf("worker=%d seq=%d", workerID, i))
+			}
+		}(w)
 	}
+	wg.Wait()
+
+	// Write recent sequence marker which should be preserved
+	lg.Info("seq=99999")
 
 	stats := lg.Stats()
 	if stats.DroppedTotal == 0 {
@@ -155,10 +168,19 @@ func TestBackpressureDropDebugOnly(t *testing.T) {
 		t.Fatalf("failed to start logger: %v", err)
 	}
 
-	// Saturate queue with DEBUG logs
-	for i := 0; i < 100000; i++ {
-		lg.Debug("debug message")
+	// Saturate queue with DEBUG logs using concurrent workers to ensure saturation, keeping messages identifiable
+	const numWorkers = 5
+	var wg sync.WaitGroup
+	wg.Add(numWorkers)
+	for w := 0; w < numWorkers; w++ {
+		go func(workerID int) {
+			defer wg.Done()
+			for i := 0; i < 30000; i++ {
+				lg.Debug(fmt.Sprintf("worker=%d debug message %d", workerID, i))
+			}
+		}(w)
 	}
+	wg.Wait()
 
 	// Now try to log critical messages, which should block/enqueue
 	// Let's spawn a goroutine to log error/critical while the queue is full

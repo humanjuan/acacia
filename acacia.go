@@ -48,13 +48,16 @@ import (
 )
 
 const (
-	version           = "2.3.1"
-	DefaultBufferSize = 500_000
-	MinBufferSize     = 1_000
-	DefaultBatchSize  = 64 * 1024 // 64 KB (deprecated: use bufferCap)
-	flushInterval     = 100 * time.Millisecond
-	cacheInterval     = 100 * time.Millisecond
-	lastDayFormat     = "2006-01-02"
+	version                     = "2.3.1"
+	DefaultBufferSize           = 500_000
+	MinBufferSize               = 1_000
+	DefaultBatchSize            = 64 * 1024 // 64 KB (deprecated: use bufferCap)
+	flushInterval               = 100 * time.Millisecond
+	cacheInterval               = 100 * time.Millisecond
+	lastDayFormat               = "2006-01-02"
+	defaultBufferInitialCap     = 64 * 1024
+	defaultBufferFlushThreshold = 256 * 1024
+	defaultBufferMaxRetainedCap = 512 * 1024
 )
 
 var (
@@ -909,6 +912,9 @@ func Start(logName, logPath, logLevel string, opts ...Option) (*Log, error) {
 	if internalCap <= 0 {
 		internalCap = cfg.batchSize
 	}
+	if internalCap < defaultBufferInitialCap {
+		internalCap = defaultBufferInitialCap
+	}
 
 	log := &Log{
 		name:               logName,
@@ -1154,6 +1160,36 @@ func (_log *Log) writeEvent(ev logEvent) {
 	}
 	lvl := levelBytesFor(ev.level)
 
+	// Estimate the size of the line to append to avoid unbounded buffer growth
+	lineLen := 0
+	switch ev.kind {
+	case 0: // string payload
+		lineLen = len(lvl) + len(ev.msgStr) + 4
+		if len(ts) > 0 {
+			lineLen += len(ts)
+		}
+		if len(ev.msgStr) == 0 || ev.msgStr[len(ev.msgStr)-1] != '\n' {
+			lineLen++
+		}
+	case 1: // raw []byte payload
+		lineLen = len(lvl) + len(ev.msgBytes) + 4
+		if len(ts) > 0 {
+			lineLen += len(ts)
+		}
+		if len(ev.msgBytes) == 0 || ev.msgBytes[len(ev.msgBytes)-1] != '\n' {
+			lineLen++
+		}
+	case 2: // preformatted JSON bytes
+		lineLen = len(ev.msgBytes)
+	}
+
+	largeLine := lineLen > defaultBufferFlushThreshold
+
+	// Flush proactively if the active buffer size exceeds our threshold
+	if len(_log.buffer) > 0 && len(_log.buffer)+lineLen > defaultBufferFlushThreshold {
+		_log.flush()
+	}
+
 	switch ev.kind {
 	case 0: // string payload, format here
 		ms := ev.msgStr
@@ -1181,6 +1217,10 @@ func (_log *Log) writeEvent(ev logEvent) {
 	case 2: // preformatted JSON bytes; just append and return buffer to JSON pool
 		_log.buffer = append(_log.buffer, ev.msgBytes...)
 		putJSONBuf(ev.msgBytes)
+	}
+
+	if largeLine && len(_log.buffer) > 0 {
+		_log.flush()
 	}
 
 	atomic.AddUint64(&_log.dequeueSeq, 1)
@@ -1258,6 +1298,9 @@ func (_log *Log) flush() {
 
 	// Double buffer (lock-free swap on the hot path)
 	_log.writeBuf, _log.buffer = _log.buffer, _log.writeBuf[:0]
+	if cap(_log.buffer) > defaultBufferMaxRetainedCap {
+		_log.buffer = make([]byte, 0, defaultBufferInitialCap)
+	}
 	remaining := _log.writeBuf
 
 	// Protect rotation and file I/O under a single mutex
@@ -1354,6 +1397,9 @@ func (_log *Log) flush() {
 
 	// Limpiar writeBuf antes de salir del lock
 	_log.writeBuf = _log.writeBuf[:0]
+	if cap(_log.writeBuf) > defaultBufferMaxRetainedCap {
+		_log.writeBuf = make([]byte, 0, defaultBufferInitialCap)
+	}
 }
 
 func (_log *Log) formatMessageString(data interface{}, args ...interface{}) string {

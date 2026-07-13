@@ -14,6 +14,8 @@ Este directorio almacena los reportes de cierre de cada fase de optimización y 
 * [Reporte de Fase 08: Documentación, migración y release](phase-08-docs-migration-release-report.md)
 * [Reporte de Validación Hard de Performance del Release Candidate](release-candidate-hard-performance-validation-report.md)
 * [Reporte de Diagnóstico de Fase 09](phase-09-diagnostics-report.md)
+* [Reporte de Optimización Incremental de Fase 09](phase-09-incremental-optimization-report.md)
+
 
 
 

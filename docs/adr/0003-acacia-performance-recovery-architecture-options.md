@@ -1,6 +1,6 @@
 # ADR 0003: Acacia Performance Recovery Architecture Options
 
-* **Status**: Proposed
+* **Status**: Accepted for initial implementation
 * **Date**: 2026-07-09
 * **Authors**: Senior Go Architecture & Performance Engineering Agent
 
@@ -78,12 +78,19 @@ The final decision will be based on the following priorities:
 
 ---
 
-## Decision Pending
-No decision has been finalized. Diagnostics planned in **Sprint 09.1** (specifically CPU/memory profiles and isolated micro-benchmarks of atomic operations and buffer growth) will determine which option is selected. 
+## Decision Update — Sprint 09.2
 
-The recommendation is to start with **Option 1 (Incremental)**. If profiling reveals that atomic coordination and buffer growth cannot be sufficiently optimized within the current structure, we will evaluate transitioning to **Option 2 (Writer-Owned)** or **Option 4 (Partial Rebuild)**.
+Based on Phase 09 diagnostics, Option 1 (Incremental Optimization) is selected for the first implementation pass.
+
+Rationale:
+- buffer growth and delayed flushes were strongly indicated as primary root cause candidates;
+- atomic/state checks and io.Writer interface overhead were not supported as primary root causes;
+- incremental buffer pre-growth/capping and size-based flush thresholds are lower risk than writer-owned sequencing or partial rebuild.
+
+Options 2 and 4 remain fallback paths if SSD validation shows unresolved regressions.
 
 ---
+
 
 ## Impact
 
