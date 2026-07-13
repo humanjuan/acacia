@@ -28,9 +28,11 @@ Llevar el soporte de JSON estructurado de Acacia a un nivel profesional y compet
   - Comparar ergonómicamente patrones comunes de la comunidad (flat structured fields, callbacks para builders, namespaces planos y marshaler interfaces) sin duplicar diseños existentes.
   - Asegurar la estabilidad de la rama v2.x.
   - Definir qué APIs se consideran de camino rápido (camino rápido con target de zero-allocation en benchmarks) y cuáles representan caminos lentos y compatibles (reflection/maps).
+  - Diseñar el API Contract público formal en `docs/PHASE_10_STRUCTURED_JSON_API_CONTRACT.md`.
 - **Criterios de Aceptación**:
-  - Contrato público documentado y aprobado en el ADR 0004.
-  - Reglas de redacción de seguridad y de escaping alineadas antes del desarrollo.
+  - Documento de contrato de API pública finalizado en `docs/PHASE_10_STRUCTURED_JSON_API_CONTRACT.md`.
+  - Contrato público y decisiones de diseño registradas y aprobadas en el ADR 0004.
+  - Reglas de redacción recursiva, manejo de pánicos y políticas de RawJSON acordadas.
 
 ### Sprint 10.1 — Flat JSON Builder Hardening
 - **Objetivo**: Robustecer la ruta crítica de JSON plano.
@@ -115,7 +117,7 @@ Llevar el soporte de JSON estructurado de Acacia a un nivel profesional y compet
   - Sin fugas observadas bajo la suite de redacción recursiva documentada.
 
 ### Sprint 10.8 — Fuzzing & Security Validation
-- **Objetivo**: Garantizar la robustez sintáctica del codificador bajo fuzzing.
+- **Objetivo**: Validar la robustez sintáctica del codificador bajo fuzzing.
 - **Detalle**:
   - Fuzzing de codificación de caracteres de control, UTF-8 inválido, payloads masivos y claves duplicadas.
 - **Criterios de Aceptación**:

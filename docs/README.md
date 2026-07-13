@@ -24,6 +24,7 @@ Para proteger la integridad del proyecto y de la infraestructura local:
 * [Guía de Reportes de Fase](REPORTING_GUIDE.md): Metodología de documentación al cierre de cada hito.
 * [Plan de Recuperación de Performance — Fase 09](PHASE_09_PERFORMANCE_RECOVERY_PLAN.md): Plan estratégico para resolver regresiones de rendimiento y evaluar compatibilidad con OpenTelemetry.
 * [Plan de Madurez de JSON Estructurado — Fase 10](PHASE_10_STRUCTURED_JSON_MATURITY_PLAN.md): Plan de diseño y contrato de API para JSON plano y multi-nivel.
+* [Contrato de API de JSON Estructurado — Fase 10](PHASE_10_STRUCTURED_JSON_API_CONTRACT.md): Especificación y diseño formal para JSON plano y de múltiples niveles.
 * Decisiones de Diseño de Arquitectura (ADR) (adr/):
   * [ADR 0001: Límite entre Documentación Pública y Privada](adr/0001-public-private-documentation-boundary.md)
   * [ADR 0002: Requisitos de Reproducibilidad en Claims de Rendimiento](adr/0002-performance-claims-must-be-reproducible.md)
@@ -43,5 +44,5 @@ Para proteger la integridad del proyecto y de la infraestructura local:
  
 ## Estado Actual
 * **Fase Activa:** `Fase 10 — Structured JSON Maturity` (Propuesta / definición de roadmap).
-* **Próxima Fase:** `Fase 10 API contract validation & implementation planning.`
+* **Próxima Fase:** `Sprint 10.1 — Flat JSON Builder Hardening.`
 

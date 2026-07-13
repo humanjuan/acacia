@@ -65,3 +65,17 @@ Option 4:
 - Recursive redaction must filter credentials inside objects and arrays.
 - Fuzzing validates JSON validity and escaping under all inputs.
 - Clearly documented performance tradeoffs between fast path and slow Any/legacy fallback.
+
+## Decision Update — Sprint 10.0 API Contract
+
+During Sprint 10.0, the following API design decisions were formulated and recorded in the API Contract:
+- **Namespace Scope**: `Namespace` uses a dedicated `*acacia.Namespace` callback scope instead of `*acacia.Event`. This scope does not expose `Msg()` or `Send()`, preventing premature event termination.
+- **Array Nesting**: Nested arrays (arrays within arrays) are excluded from the initial Array Builder scope and postponed as a future extension. Only primitive arrays and arrays of objects are supported initially.
+- **Panics in Callbacks**: Safe recovery is enforced. If a panic is caught during callback execution, a constant error field (`"_acacia_error": "object callback panic"` or `"array callback panic"`) is added. Raw panic details/messages are not logged by default to prevent credential leakage.
+- **RawJSON**: Accepts any valid JSON value according to `json.Valid` (object, array, string, number, bool, null). It remains trusted input only, with no internal redaction, and invalid payloads degrade to safely escaped strings.
+- **Zero Allocations**: Clarified that 0 allocs/op is a target for benchmarks on the flat fast path, not a general framework guarantee.
+- **Duplicate Keys**: Handled as "last write wins" at the consumer layer. No deduplication logic will be run in the builder's fast path to avoid performance penalties.
+- **Any Fallback**: Explicitly marked as a slow path that utilizes reflection/marshaling.
+- **Recursive Redaction**: Mandatory Case-Insensitive filtering of credentials across all nested objects and arrays.
+
+The status remains **Proposed** until the implementation phase starts and initial checks are completed.

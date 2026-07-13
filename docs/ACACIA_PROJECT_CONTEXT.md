@@ -290,13 +290,13 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review and commit Phase 10 planning artifacts, then begin Sprint 10.0 — Discovery & API Contract.
+Review Sprint 10.0 API contract, then begin Sprint 10.1 — Flat JSON Builder Hardening.
 ```
 
 Recommended commit message:
 
 ```text
-docs: plan Phase 10 structured JSON maturity and add ADR 0004
+docs: complete Sprint 10.0 structured JSON API contract
 ```
 
 After that:

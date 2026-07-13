@@ -16,6 +16,7 @@ Este directorio almacena los reportes de cierre de cada fase de optimización y 
 * [Reporte de Diagnóstico de Fase 09](phase-09-diagnostics-report.md)
 * [Reporte de Optimización Incremental de Fase 09](phase-09-incremental-optimization-report.md)
 * [Reporte de Hoja de Ruta de Fase 10: Madurez de JSON Estructurado](phase-10-structured-json-roadmap-report.md)
+* [Reporte de Contrato de API de Fase 10: Madurez de JSON Estructurado](phase-10-api-contract-report.md)
 
 
 
