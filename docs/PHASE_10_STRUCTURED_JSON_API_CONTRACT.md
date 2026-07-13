@@ -47,6 +47,7 @@ lg.InfoEvent().
 - **Claves Duplicadas**: Para maximizar el rendimiento del fast path, no se realizará deduplicación en caliente (0 allocs/op). Se emitirán ambas claves al output JSON, delegando el comportamiento al ingestador/SIEM final (donde típicamente la última escritura prevalece: "last write wins").
 - **Escapado de Caracteres de Control y Unicode**: Criterio de aceptación: el encoder debe escapar correctamente caracteres de control (`\x00` - `\x1f`), comillas (`"`), barras diagonales inversas (`\`), y retornos de carro (`\n`, `\r`) para evitar ataques de log injection.
 - **UTF-8 Inválido**: Los strings con secuencias UTF-8 inválidas deben serializarse de forma segura usando la semántica de escape/sustitución definida por el encoder, asegurando que nunca produzcan JSON inválido. Se definirá un test/fuzz para validar este caso en la implementación.
+- **Floats No Finitos (NaN y +/-Inf)**: Los valores numéricos no finitos (`math.NaN()`, `math.Inf(1)` y `math.Inf(-1)`) no se serializarán como literales numéricos directos (lo que resultaría en JSON inválido), sino que se degradarán a strings JSON válidos: `"NaN"`, `"+Inf"` y `"-Inf"`, respectivamente.
 
 ---
 

@@ -38,6 +38,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -45,6 +46,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -1522,35 +1524,58 @@ func ensureJSONCapacity(buf []byte, extra int) []byte {
 func escapeJSONInto(dst []byte, s string) []byte {
 	const hex = "0123456789abcdef"
 	dst = ensureJSONCapacity(dst, len(s))
-	for i := 0; i < len(s); i++ {
+	last := 0
+	for i := 0; i < len(s); {
 		c := s[i]
-		switch c {
-		case '\\', '"':
-			dst = ensureJSONCapacity(dst, 2)
-			dst = append(dst, '\\', c)
-		case '\n':
-			dst = ensureJSONCapacity(dst, 2)
-			dst = append(dst, '\\', 'n')
-		case '\r':
-			dst = ensureJSONCapacity(dst, 2)
-			dst = append(dst, '\\', 'r')
-		case '\t':
-			dst = ensureJSONCapacity(dst, 2)
-			dst = append(dst, '\\', 't')
-		case '\b':
-			dst = ensureJSONCapacity(dst, 2)
-			dst = append(dst, '\\', 'b')
-		case '\f':
-			dst = ensureJSONCapacity(dst, 2)
-			dst = append(dst, '\\', 'f')
-		default:
-			if c < 32 {
-				dst = ensureJSONCapacity(dst, 6)
-				dst = append(dst, '\\', 'u', '0', '0', hex[c>>4], hex[c&0x0f])
+		if c < utf8.RuneSelf {
+			if c == '\\' || c == '"' || c == '\n' || c == '\r' || c == '\t' || c == '\b' || c == '\f' || c < 32 {
+				dst = append(dst, s[last:i]...)
+				switch c {
+				case '\\', '"':
+					dst = ensureJSONCapacity(dst, 2)
+					dst = append(dst, '\\', c)
+				case '\n':
+					dst = ensureJSONCapacity(dst, 2)
+					dst = append(dst, '\\', 'n')
+				case '\r':
+					dst = ensureJSONCapacity(dst, 2)
+					dst = append(dst, '\\', 'r')
+				case '\t':
+					dst = ensureJSONCapacity(dst, 2)
+					dst = append(dst, '\\', 't')
+				case '\b':
+					dst = ensureJSONCapacity(dst, 2)
+					dst = append(dst, '\\', 'b')
+				case '\f':
+					dst = ensureJSONCapacity(dst, 2)
+					dst = append(dst, '\\', 'f')
+				default:
+					dst = ensureJSONCapacity(dst, 6)
+					dst = append(dst, '\\', 'u', '0', '0', hex[c>>4], hex[c&0x0f])
+				}
+				i++
+				last = i
 			} else {
-				dst = append(dst, c)
+				i++
+			}
+		} else {
+			dst = append(dst, s[last:i]...)
+			r, size := utf8.DecodeRuneInString(s[i:])
+			if r == utf8.RuneError && size == 1 {
+				dst = ensureJSONCapacity(dst, 6)
+				dst = append(dst, '\\', 'u', 'f', 'f', 'f', 'd')
+				i++
+				last = i
+			} else {
+				dst = ensureJSONCapacity(dst, size)
+				dst = append(dst, s[i:i+size]...)
+				i += size
+				last = i
 			}
 		}
+	}
+	if last < len(s) {
+		dst = append(dst, s[last:]...)
 	}
 	return dst
 }
@@ -1748,7 +1773,7 @@ func isSensitiveKey(key string) bool {
 func (e *Event) appendRedactedField(key string) *Event {
 	e.buf = ensureJSONCapacity(e.buf, len(key)+16)
 	e.buf = append(e.buf, `,"`...)
-	e.buf = append(e.buf, key...)
+	e.buf = escapeJSONInto(e.buf, key)
 	e.buf = append(e.buf, `":"[REDACTED]"`...)
 	return e
 }
@@ -1824,7 +1849,7 @@ func (e *Event) Str(key, val string) *Event {
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+len(val)+6)
 	e.buf = append(e.buf, `,"`...)
-	e.buf = append(e.buf, key...)
+	e.buf = escapeJSONInto(e.buf, key)
 	e.buf = append(e.buf, `":"`...)
 	e.buf = escapeJSONInto(e.buf, val)
 	e.buf = append(e.buf, '"')
@@ -1840,7 +1865,7 @@ func (e *Event) Int(key string, val int) *Event {
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+24)
 	e.buf = append(e.buf, `,"`...)
-	e.buf = append(e.buf, key...)
+	e.buf = escapeJSONInto(e.buf, key)
 	e.buf = append(e.buf, `":`...)
 	e.buf = strconv.AppendInt(e.buf, int64(val), 10)
 	return e
@@ -1855,7 +1880,7 @@ func (e *Event) Int64(key string, val int64) *Event {
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+24)
 	e.buf = append(e.buf, `,"`...)
-	e.buf = append(e.buf, key...)
+	e.buf = escapeJSONInto(e.buf, key)
 	e.buf = append(e.buf, `":`...)
 	e.buf = strconv.AppendInt(e.buf, val, 10)
 	return e
@@ -1870,7 +1895,7 @@ func (e *Event) Uint64(key string, val uint64) *Event {
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+24)
 	e.buf = append(e.buf, `,"`...)
-	e.buf = append(e.buf, key...)
+	e.buf = escapeJSONInto(e.buf, key)
 	e.buf = append(e.buf, `":`...)
 	e.buf = strconv.AppendUint(e.buf, val, 10)
 	return e
@@ -1885,7 +1910,7 @@ func (e *Event) Bool(key string, val bool) *Event {
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+10)
 	e.buf = append(e.buf, `,"`...)
-	e.buf = append(e.buf, key...)
+	e.buf = escapeJSONInto(e.buf, key)
 	e.buf = append(e.buf, `":`...)
 	if val {
 		e.buf = append(e.buf, "true"...)
@@ -1902,9 +1927,30 @@ func (e *Event) Float64(key string, val float64) *Event {
 	if isSensitiveKey(key) {
 		return e.appendRedactedField(key)
 	}
+	if math.IsNaN(val) {
+		e.buf = ensureJSONCapacity(e.buf, len(key)+20)
+		e.buf = append(e.buf, `,"`...)
+		e.buf = escapeJSONInto(e.buf, key)
+		e.buf = append(e.buf, `":"NaN"`...)
+		return e
+	}
+	if math.IsInf(val, 1) {
+		e.buf = ensureJSONCapacity(e.buf, len(key)+20)
+		e.buf = append(e.buf, `,"`...)
+		e.buf = escapeJSONInto(e.buf, key)
+		e.buf = append(e.buf, `":"+Inf"`...)
+		return e
+	}
+	if math.IsInf(val, -1) {
+		e.buf = ensureJSONCapacity(e.buf, len(key)+20)
+		e.buf = append(e.buf, `,"`...)
+		e.buf = escapeJSONInto(e.buf, key)
+		e.buf = append(e.buf, `":"-Inf"`...)
+		return e
+	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+28)
 	e.buf = append(e.buf, `,"`...)
-	e.buf = append(e.buf, key...)
+	e.buf = escapeJSONInto(e.buf, key)
 	e.buf = append(e.buf, `":`...)
 	e.buf = strconv.AppendFloat(e.buf, val, 'f', -1, 64)
 	return e
@@ -1923,7 +1969,7 @@ func (e *Event) ErrKey(key string, err error) *Event {
 	errStr := err.Error()
 	e.buf = ensureJSONCapacity(e.buf, len(key)+len(errStr)+12)
 	e.buf = append(e.buf, `,"`...)
-	e.buf = append(e.buf, key...)
+	e.buf = escapeJSONInto(e.buf, key)
 	e.buf = append(e.buf, `":"`...)
 	e.buf = escapeJSONInto(e.buf, errStr)
 	e.buf = append(e.buf, '"')
@@ -1943,7 +1989,7 @@ func (e *Event) Dur(key string, val time.Duration) *Event {
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+24)
 	e.buf = append(e.buf, `,"`...)
-	e.buf = append(e.buf, key...)
+	e.buf = escapeJSONInto(e.buf, key)
 	e.buf = append(e.buf, `":`...)
 	e.buf = strconv.AppendInt(e.buf, int64(val), 10)
 	return e
@@ -1958,7 +2004,7 @@ func (e *Event) Time(key string, val time.Time) *Event {
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+40)
 	e.buf = append(e.buf, `,"`...)
-	e.buf = append(e.buf, key...)
+	e.buf = escapeJSONInto(e.buf, key)
 	e.buf = append(e.buf, `":"`...)
 	e.buf = val.AppendFormat(e.buf, time.RFC3339Nano)
 	e.buf = append(e.buf, '"')
@@ -1971,7 +2017,7 @@ func (e *Event) Secret(key, val string) *Event {
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+16)
 	e.buf = append(e.buf, `,"`...)
-	e.buf = append(e.buf, key...)
+	e.buf = escapeJSONInto(e.buf, key)
 	e.buf = append(e.buf, `":"[REDACTED]"`...)
 	return e
 }
@@ -1982,7 +2028,7 @@ func (e *Event) StrRedacted(key, val string) *Event {
 	}
 	e.buf = ensureJSONCapacity(e.buf, len(key)+16)
 	e.buf = append(e.buf, `,"`...)
-	e.buf = append(e.buf, key...)
+	e.buf = escapeJSONInto(e.buf, key)
 	e.buf = append(e.buf, `":"[REDACTED]"`...)
 	return e
 }

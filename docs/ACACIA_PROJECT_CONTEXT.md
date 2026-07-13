@@ -290,17 +290,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review Sprint 10.0 API contract, then begin Sprint 10.1 — Flat JSON Builder Hardening.
+Review Sprint 10.1 Flat JSON Builder Hardening, then decide whether to proceed to Sprint 10.2 — Object Builder.
 ```
 
 Recommended commit message:
 
 ```text
-docs: complete Sprint 10.0 structured JSON API contract
+feat: harden flat structured JSON builder
 ```
 
 After that:
 
 ```text
-Align on Acceptance Criteria and the structured JSON contract.
+Decide whether to proceed to Sprint 10.2 — Object Builder.
 ```
