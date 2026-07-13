@@ -23,10 +23,12 @@ Para proteger la integridad del proyecto y de la infraestructura local:
 * [Estrategia de Migración](MIGRATION_STRATEGY.md): Plan de compatibilidad para la transición a la API builder (candidato a v3).
 * [Guía de Reportes de Fase](REPORTING_GUIDE.md): Metodología de documentación al cierre de cada hito.
 * [Plan de Recuperación de Performance — Fase 09](PHASE_09_PERFORMANCE_RECOVERY_PLAN.md): Plan estratégico para resolver regresiones de rendimiento y evaluar compatibilidad con OpenTelemetry.
-* [Decisiones de Diseño de Arquitectura (ADR)](adr/):
+* [Plan de Madurez de JSON Estructurado — Fase 10](PHASE_10_STRUCTURED_JSON_MATURITY_PLAN.md): Plan de diseño y contrato de API para JSON plano y multi-nivel.
+* Decisiones de Diseño de Arquitectura (ADR) (adr/):
   * [ADR 0001: Límite entre Documentación Pública y Privada](adr/0001-public-private-documentation-boundary.md)
   * [ADR 0002: Requisitos de Reproducibilidad en Claims de Rendimiento](adr/0002-performance-claims-must-be-reproducible.md)
   * [ADR 0003: Opciones de Arquitectura para la Recuperación de Performance](adr/0003-acacia-performance-recovery-architecture-options.md)
+  * [ADR 0004: Madurez de JSON Estructurado](adr/0004-structured-json-maturity.md)
 * [Reportes de Ejecución](reports/):
   * [Reporte de Fase 00: Organización del Repositorio](reports/phase-00-repo-organization-report.md)
   * [Reporte de Validación Hard de Performance del Release Candidate](reports/release-candidate-hard-performance-validation-report.md)
@@ -40,6 +42,6 @@ Para proteger la integridad del proyecto y de la infraestructura local:
   * [Runbook de Preparación para Release](runbooks/release-readiness-runbook.md)
  
 ## Estado Actual
-* **Fase Activa:** `Fase 09 — Performance Recovery, Architecture Review & OpenTelemetry Compatibility` (Planificada / lista para diagnóstico).
-* **Próxima Fase:** `Fase 09 diagnostics & architecture selection.`
+* **Fase Activa:** `Fase 10 — Structured JSON Maturity` (Propuesta / definición de roadmap).
+* **Próxima Fase:** `Fase 10 API contract validation & implementation planning.`
 

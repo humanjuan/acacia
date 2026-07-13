@@ -1,6 +1,6 @@
 # Plan de Mejora de Acacia (Improvement Roadmap)
 
-Este documento detalla el plan incremental de 10 fases (00 a 09) estructurado para transformar el logger Acacia en un motor de telemetría de alto rendimiento, Zero-Allocation, seguro y robusto frente a fallos.
+Este documento detalla el plan incremental de fases, actualmente extendido hasta Fase 10, estructurado para transformar el logger Acacia en un motor de telemetría de alto rendimiento, con targets de Zero-Allocation, seguro y robusto frente a fallos.
 
 ---
 
@@ -86,9 +86,9 @@ Reemplazar la serialización actual por un encoder manual optimizado basado pura
 
 ### Criterio de aceptación
 * Salida JSON estrictamente válida según especificación.
-* Prevención absoluta de ataques de log injection mediante sanitización de retornos de carro (`\n` y `\r`).
+* Criterio de aceptación para mitigar ataques de log injection mediante sanitización de retornos de carro (`\n` y `\r`).
 * Fuzz tests que validen el escape JSON de caracteres extraños.
-* Cero asignaciones extras bajo `GOMAXPROCS=1` al formatear JSON complejo.
+* Target de cero asignaciones extras en benchmarks documentados bajo `GOMAXPROCS=1` al formatear JSON complejo.
 
 ---
 
@@ -104,7 +104,7 @@ Eliminar el uso de la sanitización reflectiva recursiva del camino caliente del
   * `cookie`, `set-cookie`, `authorization`, `token`, `access_token`, `refresh_token`, `password`, `api_key`, `private_key`, `client_secret`.
 
 ### Criterio de aceptación
-* Garantía de que ningún dato sensible configurado aparezca en la salida JSON.
+* Criterio de aceptación de que ningún dato sensible configurado aparezca en la salida JSON en las pruebas documentadas.
 * Fuzzing sobre campos sensibles sin detectar bypasses de redacción.
 * Rendimiento de redacción a **0 allocs/op** en la escritura a búfer.
 
@@ -153,7 +153,7 @@ Endurecer el subsistema de persistencia en disco de Acacia para garantizar la at
 ## Fase 07 — Semántica formal de Sync y Close
 
 ### Objetivo
-Garantizar que las operaciones de sincronización (`Sync()`) y apagado (`Close()`) sigan un protocolo formal determinista, asegurando cero pérdida de logs encolados antes del cierre.
+Establecer un protocolo formal determinista para las operaciones de sincronización (`Sync()`) y apagado (`Close()`), apuntando a evitar pérdidas de logs encolados antes del cierre en las suites de prueba.
 
 ### Entregables
 * Estructuras de control y canalización interna para asegurar el vaciado total.
@@ -162,7 +162,7 @@ Garantizar que las operaciones de sincronización (`Sync()`) y apagado (`Close()
 
 ### Criterio de aceptación
 * Pasa el race detector (`go test -race ./...`) bajo llamadas concurrentes y desordenadas a `Sync` y `Close`.
-* Cero pérdida de registros encolados al invocar `Close()`.
+* Criterio de aceptación de cero pérdida de registros encolados al invocar `Close()` bajo pruebas documentadas.
 
 ---
 
@@ -186,10 +186,10 @@ Alinear el README público con el nuevo rendimiento real y reproducible, documen
 ## Fase 09 — Performance Recovery, Architecture Review & OpenTelemetry Compatibility
 
 ### Estado
-Planned / Next
+Completed (Sprint 09.1 & 09.2)
 
 ### Objetivo
-Detectar las causas de las regresiones de rendimiento detectadas en la validación del release candidate y aplicar optimizaciones o reestructuraciones parciales de arquitectura que permitan recuperar la performance (particularmente en payloads grandes de 1KB y hot path de string/bytes) manteniendo las garantías de seguridad, estabilidad y compatibilidad con la rama v2.x. Adicionalmente, planificar y evaluar de forma opcional y aislada la compatibilidad con OpenTelemetry.
+Detectar las causas de las regresiones de rendimiento detectadas en la validación del release candidate y aplicar optimizaciones o reestructuraciones parciales de arquitectura que permitan recuperar la performance (particularmente en payloads grandes de 1KB y hot path de string/bytes) manteniendo los criterios de seguridad, estabilidad y compatibilidad con la rama v2.x. Adicionalmente, planificar y evaluar las bases arquitectónicas de compatibilidad con OpenTelemetry, difiriendo la implementación del adaptador opcional para fases posteriores.
 
 ### Motivación
 La validación en SSD detectó regresiones de latencia (+21-23% en hot path de strings/bytes y hasta +92% en payloads de 1KB) causadas por la sobrecarga de controles atómicos y la estrategia de crecimiento del búfer. Es imperativo corregir estas regresiones antes del release definitivo para cumplir con las promesas de rendimiento del logger.
@@ -207,5 +207,32 @@ La validación en SSD detectó regresiones de latencia (+21-23% en hot path de s
 * Cumplimiento de los targets de recuperación de performance.
 * Fuzzing, race detector y stress tests sin advertencias ni errores.
 * Compatibilidad con APIs públicas v2.x totalmente conservada.
-* Evaluación de compatibilidad con OpenTelemetry concluida sin overhead medible en benchmarks documentados cuando esté deshabilitada.
+* Criterios arquitectónicos y de diseño para la compatibilidad con OpenTelemetry establecidos; la implementación del adaptador opcional queda diferida para una fase posterior.
 
+---
+
+## Fase 10 — Structured JSON Maturity
+
+### Estado
+Planned / Proposed
+
+### Objetivo
+Llevar el soporte de JSON estructurado de Acacia a un nivel profesional y competitivo en el mercado, soportando tanto campos planos de alto rendimiento como estructuras JSON multi-nivel tipadas y seguras.
+
+### Entregables
+* Especificación de API pública y ADR 0004 de madurez de JSON estructurado.
+* Implementación de Flat JSON builder hardening.
+* Implementación de Object y Array builders seguros y eficientes sin reflexión en hot paths recomendados.
+* Soporte para Groups/Namespaces y RawJSON seguro con auditoría de redacción recursiva.
+* Any/Interface fallback documentado y acotado como camino lento.
+* Cobertura de pruebas unitarias, race detector y fuzzing.
+* Benchmarks comparativos detallados e integración de ejemplos prácticos en README.
+
+### Criterio de salida
+* `go test ./...` y `go test -race ./...` aprobados sin advertencias.
+* Fuzz targets del codificador JSON y redacción recursiva pasando de forma exitosa.
+* Pruebas de redacción recursiva validadas (claves sensibles no expuestas en objetos o arrays).
+* Los builders de objetos/arrays evitan la reflexión en sus paths recomendados.
+* La compatibilidad con el camino legacy de mapas se mantiene intacta.
+* La documentación distingue claramente el camino rápido del fallback lento.
+* Sin claims de rendimiento finales de release hasta completar la validación hard en SSD interno.

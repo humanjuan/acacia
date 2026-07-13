@@ -34,27 +34,26 @@ The current engineering effort focuses on improving:
 Current phase:
 
 ```text
-Fase 09 — Performance Recovery, Architecture Review & OpenTelemetry Compatibility
+Fase 10 — Structured JSON Maturity
 ```
 
 Current status:
 
 ```text
-Planned / ready to start diagnostics
+Proposed / Planning & Roadmap definition
 ```
 
 Next action:
 
 ```text
-Run Phase 09 diagnostics to identify the concrete sources of hot-path and large-payload regressions before implementing optimizations.
+Align on acceptance criteria and structured JSON architecture details proposed in ADR 0004.
 ```
 
-Summary of hard performance validation findings:
-- **Stability**: Release candidate is functionally stable, validated with the race detector under the test suite, and passes all stress and fuzzing suites.
-- **Regressions**: Performance regressions detected (+21% to +23% latency on raw string/bytes, major regression on 1KB payloads with increased B/op).
-- **Diagnostics**: Custom Python script used for comparison due to lack of `benchstat` in temporary SSD environment; running `benchstat` remains a strict prerequisite for repeating/completing validation.
-- **Gaps**: Isolation of the `io.Writer` layer, backup rotation cardinality benchmarks, and daily rotation metrics are missing.
-- **OpenTelemetry**: Compatibility evaluation is planned as an optional adapter with no measurable overhead in documented benchmarks on the core logger when disabled.
+Summary of Phase 09 results:
+- **Stability**: Retained. All E2E correctness and regression suites pass under Go test and race detector.
+- **Performance Recovery**: Substantially recovered on the external disk diagnostics run. Hot-path and 1KB/4KB latency decreased by 42% to 44%, and memory allocations (B/op) on formatting methods were eliminated (dropping to 0 B/op).
+- **Diagnostics & Tooling**: Fully integrated `benchstat` comparisons and pprof CPU/memory profiling.
+- **SSD Caveat**: All Phase 09 results were verified on an external disk repository copy. Final release candidate performance validation must be repeated on the internal SSD.
 
 ---
 
@@ -206,6 +205,7 @@ Fase 06 — Filesystem, permisos y rotación segura
 Fase 07 — Semántica formal de Sync y Close
 Fase 08 — Documentación, migración y release
 Fase 09 — Performance Recovery, Architecture Review & OpenTelemetry Compatibility
+Fase 10 — Structured JSON Maturity
 ```
 
 ---
@@ -290,17 +290,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Begin Phase 09 by implementing and running diagnostic micro-benchmarks to isolate atomic operations and buffer growth overheads.
+Review and commit Phase 10 planning artifacts, then begin Sprint 10.0 — Discovery & API Contract.
 ```
 
 Recommended commit message:
 
 ```text
-docs: plan Phase 09 performance recovery and hard validation
+docs: plan Phase 10 structured JSON maturity and add ADR 0004
 ```
 
 After that:
 
 ```text
-Review architecture options in ADR 0003 and align on the recovery implementation plan with the maintainer.
+Align on Acceptance Criteria and the structured JSON contract.
 ```
