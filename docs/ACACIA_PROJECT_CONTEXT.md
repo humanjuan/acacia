@@ -40,13 +40,13 @@ Fase 10 — Structured JSON Maturity
 Current status:
 
 ```text
-Proposed / Planning & Roadmap definition
+In Progress / Implementing Structured JSON builders
 ```
 
 Next action:
 
 ```text
-Align on acceptance criteria and structured JSON architecture details proposed in ADR 0004.
+Review Sprint 10.2 Object Builder implementation, then decide whether to proceed to Sprint 10.3 — Array Builder.
 ```
 
 Summary of Phase 09 results:
@@ -290,17 +290,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review Sprint 10.1 Flat JSON Builder Hardening, then decide whether to proceed to Sprint 10.2 — Object Builder.
+Review Sprint 10.2 Object Builder, then decide whether to proceed to Sprint 10.3 — Array Builder.
 ```
 
 Recommended commit message:
 
 ```text
-feat: harden flat structured JSON builder
+feat: add typed object builder for structured JSON
 ```
 
 After that:
 
 ```text
-Decide whether to proceed to Sprint 10.2 — Object Builder.
+Decide whether to proceed to Sprint 10.3 — Array Builder.
 ```

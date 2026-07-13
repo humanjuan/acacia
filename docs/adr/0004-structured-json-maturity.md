@@ -79,3 +79,14 @@ During Sprint 10.0, the following API design decisions were formulated and recor
 - **Recursive Redaction**: Mandatory Case-Insensitive filtering of credentials across all nested objects and arrays.
 
 The status remains **Proposed** until the implementation phase starts and initial checks are completed.
+
+## Decision Update — Sprint 10.2 Object Builder
+
+During Sprint 10.2, the callback-based `Object` builder API was designed and implemented:
+- **Direct Buffer Access**: The `Object` struct holds a pointer to the event's buffer (`*[]byte`), serializing fields directly into the destination space to avoid intermediate buffer allocations.
+- **Rollback on Panic**: Before running the callback, the write offset in the buffer is recorded. If a panic occurs, the buffer is rolled back to that offset, and the safe constant indicator `"_acacia_error": "object callback panic"` is written.
+- **Nil Callbacks**: Nil callbacks are safely intercepted, emitting an empty object `{}`.
+- **Recursive Redaction**: Recursive sensitive-key check via `isSensitiveKey` normalization is enforced case-insensitively across nested levels.
+- **Escape Safety**: Keys and values inside nested objects are escaped via `escapeJSONInto` with ASCII fast-path scanner.
+- **Float64 Safety**: Reuses the Float64 safe non-finite float rules.
+

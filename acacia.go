@@ -2033,6 +2033,296 @@ func (e *Event) StrRedacted(key, val string) *Event {
 	return e
 }
 
+type Object struct {
+	buf   *[]byte
+	first bool
+}
+
+func (o *Object) appendFieldPrefix(key string) {
+	if o == nil || o.buf == nil {
+		return
+	}
+	*o.buf = ensureJSONCapacity(*o.buf, len(key)+4)
+	if o.first {
+		*o.buf = append(*o.buf, '"')
+		o.first = false
+	} else {
+		*o.buf = append(*o.buf, `,"`...)
+	}
+	*o.buf = escapeJSONInto(*o.buf, key)
+	*o.buf = append(*o.buf, `":`...)
+}
+
+func (o *Object) appendRedactedField(key string) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	*o.buf = ensureJSONCapacity(*o.buf, len(key)+16)
+	if o.first {
+		*o.buf = append(*o.buf, '"')
+		o.first = false
+	} else {
+		*o.buf = append(*o.buf, `,"`...)
+	}
+	*o.buf = escapeJSONInto(*o.buf, key)
+	*o.buf = append(*o.buf, `":"[REDACTED]"`...)
+	return o
+}
+
+func (o *Object) Str(key, val string) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+	o.appendFieldPrefix(key)
+	*o.buf = ensureJSONCapacity(*o.buf, len(val)+2)
+	*o.buf = append(*o.buf, '"')
+	*o.buf = escapeJSONInto(*o.buf, val)
+	*o.buf = append(*o.buf, '"')
+	return o
+}
+
+func (o *Object) Int(key string, val int) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+	o.appendFieldPrefix(key)
+	*o.buf = ensureJSONCapacity(*o.buf, 24)
+	*o.buf = strconv.AppendInt(*o.buf, int64(val), 10)
+	return o
+}
+
+func (o *Object) Int64(key string, val int64) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+	o.appendFieldPrefix(key)
+	*o.buf = ensureJSONCapacity(*o.buf, 24)
+	*o.buf = strconv.AppendInt(*o.buf, val, 10)
+	return o
+}
+
+func (o *Object) Uint64(key string, val uint64) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+	o.appendFieldPrefix(key)
+	*o.buf = ensureJSONCapacity(*o.buf, 24)
+	*o.buf = strconv.AppendUint(*o.buf, val, 10)
+	return o
+}
+
+func (o *Object) Bool(key string, val bool) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+	o.appendFieldPrefix(key)
+	*o.buf = ensureJSONCapacity(*o.buf, 6)
+	if val {
+		*o.buf = append(*o.buf, "true"...)
+	} else {
+		*o.buf = append(*o.buf, "false"...)
+	}
+	return o
+}
+
+func (o *Object) Float64(key string, val float64) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+	if math.IsNaN(val) {
+		o.appendFieldPrefix(key)
+		*o.buf = ensureJSONCapacity(*o.buf, 6)
+		*o.buf = append(*o.buf, `"NaN"`...)
+		return o
+	}
+	if math.IsInf(val, 1) {
+		o.appendFieldPrefix(key)
+		*o.buf = ensureJSONCapacity(*o.buf, 6)
+		*o.buf = append(*o.buf, `"+Inf"`...)
+		return o
+	}
+	if math.IsInf(val, -1) {
+		o.appendFieldPrefix(key)
+		*o.buf = ensureJSONCapacity(*o.buf, 6)
+		*o.buf = append(*o.buf, `"-Inf"`...)
+		return o
+	}
+	o.appendFieldPrefix(key)
+	*o.buf = ensureJSONCapacity(*o.buf, 24)
+	*o.buf = strconv.AppendFloat(*o.buf, val, 'f', -1, 64)
+	return o
+}
+
+func (o *Object) Dur(key string, val time.Duration) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+	o.appendFieldPrefix(key)
+	*o.buf = ensureJSONCapacity(*o.buf, 24)
+	*o.buf = strconv.AppendInt(*o.buf, int64(val), 10)
+	return o
+}
+
+func (o *Object) Time(key string, val time.Time) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+	o.appendFieldPrefix(key)
+	*o.buf = ensureJSONCapacity(*o.buf, 40)
+	*o.buf = append(*o.buf, '"')
+	*o.buf = val.AppendFormat(*o.buf, time.RFC3339Nano)
+	*o.buf = append(*o.buf, '"')
+	return o
+}
+
+func (o *Object) Err(err error) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if err == nil {
+		return o
+	}
+	return o.ErrKey("error", err)
+}
+
+func (o *Object) ErrKey(key string, err error) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if err == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+	o.appendFieldPrefix(key)
+	errStr := err.Error()
+	*o.buf = ensureJSONCapacity(*o.buf, len(errStr)+4)
+	*o.buf = append(*o.buf, '"')
+	*o.buf = escapeJSONInto(*o.buf, errStr)
+	*o.buf = append(*o.buf, '"')
+	return o
+}
+
+func (o *Object) Secret(key, val string) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	return o.appendRedactedField(key)
+}
+
+func (o *Object) StrRedacted(key, val string) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	return o.appendRedactedField(key)
+}
+
+func (o *Object) Object(key string, fn func(*Object)) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+
+	wasFirst := o.first
+	startOffset := len(*o.buf)
+	o.appendFieldPrefix(key)
+	*o.buf = append(*o.buf, '{')
+
+	var errPanic interface{}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errPanic = r
+			}
+		}()
+		if fn == nil {
+			// Nil callback emits empty object
+		} else {
+			nested := Object{buf: o.buf, first: true}
+			fn(&nested)
+		}
+	}()
+
+	if errPanic != nil {
+		*o.buf = (*o.buf)[:startOffset]
+		o.first = wasFirst
+		o.appendFieldPrefix("_acacia_error")
+		*o.buf = append(*o.buf, `"object callback panic"`...)
+	} else {
+		*o.buf = ensureJSONCapacity(*o.buf, 1)
+		*o.buf = append(*o.buf, '}')
+	}
+	return o
+}
+
+func (e *Event) Object(key string, fn func(*Object)) *Event {
+	if e == nil {
+		return nil
+	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
+	}
+
+	startOffset := len(e.buf)
+
+	e.buf = ensureJSONCapacity(e.buf, len(key)+4)
+	e.buf = append(e.buf, `,"`...)
+	e.buf = escapeJSONInto(e.buf, key)
+	e.buf = append(e.buf, `":{`...)
+
+	var errPanic interface{}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errPanic = r
+			}
+		}()
+		if fn == nil {
+			// Nil callback emits empty object
+		} else {
+			obj := Object{buf: &e.buf, first: true}
+			fn(&obj)
+		}
+	}()
+
+	if errPanic != nil {
+		e.buf = e.buf[:startOffset]
+		e.buf = ensureJSONCapacity(e.buf, 40)
+		e.buf = append(e.buf, `,"_acacia_error":"object callback panic"`...)
+	} else {
+		e.buf = ensureJSONCapacity(e.buf, 1)
+		e.buf = append(e.buf, '}')
+	}
+	return e
+}
+
 func (e *Event) Msg(msg string) {
 	if e == nil {
 		return

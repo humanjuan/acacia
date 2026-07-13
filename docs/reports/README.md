@@ -18,6 +18,7 @@ Este directorio almacena los reportes de cierre de cada fase de optimización y 
 * [Reporte de Hoja de Ruta de Fase 10: Madurez de JSON Estructurado](phase-10-structured-json-roadmap-report.md)
 * [Reporte de Contrato de API de Fase 10: Madurez de JSON Estructurado](phase-10-api-contract-report.md)
 * [Reporte de Hardening del Builder de JSON Plano de Fase 10](phase-10-flat-json-builder-hardening-report.md)
+* [Reporte de Object Builder de Fase 10](phase-10-object-builder-report.md)
 
 
 
