@@ -103,3 +103,14 @@ During Sprint 10.3, the callback-based `Array` builder API was designed and impl
 - **Err and Float64**: `Err(nil)` is omitted, and non-finite `Float64` values (`NaN`, `+Inf`, `-Inf`) are stringified safely.
 - **Deferred features**: Nested arrays, `RawJSON` in arrays, and `Any` inside arrays are deferred to keep the core complexity low.
 
+## Decision Update — Sprint 10.4 Group and Namespace
+
+During Sprint 10.4, Group and Namespace APIs were designed and implemented:
+- **Group**: Implemented as a semantic alias for `Object`. It creates a nested JSON object structure by delegating `Event.Group` and `Object.Group` to `Event.Object` and `Object.Object` respectively. This inherits all benefits of `Object` including nil callbacks, rollback on panic, escaping, recursive redaction, and zero-value safety without duplicating the encoder logic.
+- **Namespace**: Implemented as a dedicated, restricted scope `*acacia.Namespace` that writes flat, prefixed keys (`"prefix.key"`). It does not expose `Msg()` or `Send()`.
+- **Zero-Value and Nil safety**: `Namespace` behaves as a safe no-op when nil or uninitialized. Nil and empty callbacks produce no output.
+- **Rollback and Panic Safety**: Panic inside the `Namespace` callback rolls back all changes written within that namespace, restoring parent object state (`first` flag) and appending `"_acacia_error": "namespace callback panic"` inside the parent context.
+- **Redaction and Escaping**: Key segments and compound keys are checked case-insensitively for sensitive patterns without allocation. Values are redacted with `[REDACTED]` if any portion of the prefix or key segment matches. Prefix and key are properly escaped using `escapeJSONInto`.
+- **Err and Float64**: Non-finite Float64 values are mapped to string literals (`"NaN"`, `"+Inf"`, `"-Inf"`). `Err(nil)` is a no-op, and non-nil error values are appended under prefixed error keys.
+- **Deferred features**: `RawJSON` and `Any` remain deferred and isolated from the hot path.
+

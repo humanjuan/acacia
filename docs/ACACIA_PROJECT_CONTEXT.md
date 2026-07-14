@@ -46,7 +46,7 @@ In Progress / Implementing Structured JSON builders
 Next action:
 
 ```text
-Review Sprint 10.3 Array Builder, then decide whether to proceed to Sprint 10.4 — Group and Namespace.
+Review Sprint 10.4 Group and Namespace, then decide whether to proceed to Sprint 10.5 — RawJSON.
 ```
 
 Summary of Phase 09 results:
@@ -290,17 +290,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review Sprint 10.3 Array Builder, then decide whether to proceed to Sprint 10.4 — Group and Namespace.
+Review Sprint 10.4 Group and Namespace, then decide whether to proceed to Sprint 10.5 — RawJSON.
 ```
 
 Recommended commit message:
 
 ```text
-feat: add typed array builder for structured JSON
+feat: add group and namespace structured JSON builders
 ```
 
 After that:
 
 ```text
-Decide whether to proceed to Sprint 10.4 — Group and Namespace.
+Decide whether to proceed to Sprint 10.5 — RawJSON.
 ```

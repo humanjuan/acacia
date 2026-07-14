@@ -108,21 +108,43 @@ lg.InfoEvent().
 ## 5. Group vs Namespace
 Se proveerán ambas alternativas arquitectónicas debido a sus distintos casos de uso:
 
-- **Group (Estructura Anidada Real)**:
-  ```go
-  lg.InfoEvent().Group("http", func(g *acacia.Object) {
-      g.Str("method", "GET")
-  })
-  ```
-  *Salida*: `{"http": {"method": "GET"}}` (Ideal para SIEMs relacionales modernos).
+### 5.1 Group (Estructura Anidada Real)
+```go
+lg.InfoEvent().Group("http", func(g *acacia.Object) {
+    g.Str("method", "GET")
+})
+```
+*Salida*: `{"http":{"method":"GET"}}` (Ideal para SIEMs relacionales modernos).
+- **Semántica**: Group es un alias de `Object`. `Event.Group` delega a `Event.Object` y `Object.Group` delega a `Object.Object`.
+- **Manejo de Panics**: Si el callback del grupo paniquea, se realiza rollback del grupo completo y se añade `"_acacia_error":"object callback panic"` en el nivel superior.
+- **Callbacks Nil/Vacíos**: Un callback `nil` o vacío emite `{}` de forma segura.
 
-- **Namespace (Claves Planas con Prefijo)**:
-  ```go
-  lg.InfoEvent().Namespace("http", func(n *acacia.Namespace) {
-      n.Str("method", "GET")
-  })
-  ```
-  *Salida*: `{"http.method": "GET"}` (Ideal para indexadores planos tradicionales que penalizan la anidación física). El scope de Namespace no debe exponer `Msg()` ni `Send()`.
+### 5.2 Namespace (Claves Planas con Prefijo)
+```go
+lg.InfoEvent().Namespace("http", func(n *acacia.Namespace) {
+    n.Str("method", "GET")
+})
+```
+*Salida*: `{"http.method":"GET"}` (Ideal para indexadores planos tradicionales que penalizan la anidación física).
+- **Alcance dedicado**: El callback recibe un `*acacia.Namespace` que no expone `Msg()` ni `Send()` para evitar cierres prematuros de línea.
+- **Zero-Value**: Una instancia zero-value de `acacia.Namespace` es no-op y segura contra pánicos.
+- **Callbacks Nil/Vacíos**: Si el callback es `nil` o no escribe campos, el namespace no emite salida ni corrompe el JSON.
+- **Prefix Vacío**:
+  - Si `prefix == ""`, la clave final es `key`.
+  - Si `key == ""` y `prefix != ""`, la clave final es `prefix + "."`.
+  - Si ambos son vacíos, se emite clave vacía `""`.
+- **Escapado**: Tanto el prefijo como la clave son escapados usando `escapeJSONInto`.
+- **Manejo de Panics**:
+  - En `Event.Namespace`, un panic hace rollback a la posición inicial y añade `,"_acacia_error":"namespace callback panic"` a nivel raíz.
+  - En `Object.Namespace`, un panic hace rollback y añade `,"_acacia_error":"namespace callback panic"` dentro del objeto contenedor, restaurando correctamente el estado del delimitador coma (`o.first`).
+- **Redacción de Seguridad**: Se realiza de forma case-insensitive y sin allocs de memoria sobre:
+  - Clave hoja sensible.
+  - Prefijo sensible.
+  - Algún segmento sensible dentro de la clave o el prefijo (delimitados por `.`, `_`, `-`).
+  - Clave compuesta resultante.
+- **Valores Especiales**:
+  - `Float64` no finitos se convierten a strings (`"NaN"`, `"+Inf"`, `"-Inf"`).
+  - `Err(nil)` es no-op. `Err(err)` y `ErrKey(key, err)` emiten el error como un string JSON estructurado bajo la clave con prefijo correspondiente.
 
 ---
 

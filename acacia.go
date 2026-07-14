@@ -2617,3 +2617,426 @@ func (e *Event) sendEvent() {
 	e.logger = nil
 	eventPool.Put(e)
 }
+
+// --- Group and Namespace Structured JSON APIs (Sprint 10.4) ---
+
+// Group is a semantic alias for Object.
+func (e *Event) Group(key string, fn func(*Object)) *Event {
+	return e.Object(key, fn)
+}
+
+// Group is a semantic alias for Object.
+func (o *Object) Group(key string, fn func(*Object)) *Object {
+	return o.Object(key, fn)
+}
+
+// Namespace represents a scope for flat, prefixed keys.
+type Namespace struct {
+	buf     *[]byte
+	prefix  string
+	isEvent bool
+	first   *bool
+}
+
+// Namespace executes a callback to write flat keys prefixed by prefix.
+func (e *Event) Namespace(prefix string, fn func(*Namespace)) *Event {
+	if e == nil {
+		return nil
+	}
+	startOffset := len(e.buf)
+
+	var errPanic interface{}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errPanic = r
+			}
+		}()
+		if fn == nil {
+			// Nil callback is no-op
+		} else {
+			ns := Namespace{
+				buf:     &e.buf,
+				prefix:  prefix,
+				isEvent: true,
+				first:   nil,
+			}
+			fn(&ns)
+		}
+	}()
+
+	if errPanic != nil {
+		e.buf = e.buf[:startOffset]
+		e.buf = ensureJSONCapacity(e.buf, 43)
+		e.buf = append(e.buf, `,"_acacia_error":"namespace callback panic"`...)
+	}
+	return e
+}
+
+// Namespace executes a callback to write flat keys prefixed by prefix.
+func (o *Object) Namespace(prefix string, fn func(*Namespace)) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	wasFirst := o.first
+	startOffset := len(*o.buf)
+
+	var errPanic interface{}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errPanic = r
+			}
+		}()
+		if fn == nil {
+			// Nil callback is no-op
+		} else {
+			ns := Namespace{
+				buf:     o.buf,
+				prefix:  prefix,
+				isEvent: false,
+				first:   &o.first,
+			}
+			fn(&ns)
+		}
+	}()
+
+	if errPanic != nil {
+		*o.buf = (*o.buf)[:startOffset]
+		o.first = wasFirst
+		o.appendFieldPrefix("_acacia_error")
+		*o.buf = append(*o.buf, `"namespace callback panic"`...)
+	}
+	return o
+}
+
+func hasSensitiveSegment(s string) bool {
+	start := -1
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == '.' || c == '_' || c == '-' {
+			if start != -1 {
+				if isSensitiveKey(s[start:i]) {
+					return true
+				}
+				start = -1
+			}
+		} else {
+			if start == -1 {
+				start = i
+			}
+		}
+	}
+	if start != -1 {
+		if isSensitiveKey(s[start:]) {
+			return true
+		}
+	}
+	return false
+}
+
+func isSensitiveCompoundKey(prefix, key string) bool {
+	var buf [64]byte
+	w := 0
+
+	processStr := func(s string) bool {
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			if c == '-' || c == '_' || c == '.' {
+				continue
+			}
+			if w >= 64 {
+				return false
+			}
+			if c >= 'A' && c <= 'Z' {
+				buf[w] = c + ('a' - 'A')
+			} else {
+				buf[w] = c
+			}
+			w++
+		}
+		return true
+	}
+
+	if !processStr(prefix) {
+		return false
+	}
+	if !processStr(key) {
+		return false
+	}
+
+	normalized := buf[:w]
+	switch string(normalized) {
+	case "authorization", "cookie", "setcookie", "token", "accesstoken", "refreshtoken",
+		"password", "passwd", "pwd", "apikey", "privatekey", "clientsecret", "secret",
+		"bearer", "jwt", "session", "sessionid", "csrf", "xsrf", "xapikey":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSensitiveNamespaceKey(prefix, key string) bool {
+	if isSensitiveKey(prefix) {
+		return true
+	}
+	if isSensitiveKey(key) {
+		return true
+	}
+	if prefix != "" && key != "" {
+		if isSensitiveCompoundKey(prefix, key) {
+			return true
+		}
+	}
+	if hasSensitiveSegment(prefix) {
+		return true
+	}
+	if hasSensitiveSegment(key) {
+		return true
+	}
+	return false
+}
+
+func (n *Namespace) appendFieldPrefix(key string) {
+	if n == nil || n.buf == nil {
+		return
+	}
+	*n.buf = ensureJSONCapacity(*n.buf, len(n.prefix)+len(key)+6)
+	if n.isEvent {
+		*n.buf = append(*n.buf, `,"`...)
+	} else {
+		if n.first != nil && *n.first {
+			*n.buf = append(*n.buf, '"')
+			*n.first = false
+		} else {
+			*n.buf = append(*n.buf, `,"`...)
+		}
+	}
+
+	if n.prefix == "" {
+		*n.buf = escapeJSONInto(*n.buf, key)
+	} else if key == "" {
+		*n.buf = escapeJSONInto(*n.buf, n.prefix)
+		*n.buf = append(*n.buf, '.')
+	} else {
+		*n.buf = escapeJSONInto(*n.buf, n.prefix)
+		*n.buf = append(*n.buf, '.')
+		*n.buf = escapeJSONInto(*n.buf, key)
+	}
+	*n.buf = append(*n.buf, `":`...)
+}
+
+func (n *Namespace) appendRedactedField(key string) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	*n.buf = ensureJSONCapacity(*n.buf, len(n.prefix)+len(key)+18)
+	if n.isEvent {
+		*n.buf = append(*n.buf, `,"`...)
+	} else {
+		if n.first != nil && *n.first {
+			*n.buf = append(*n.buf, '"')
+			*n.first = false
+		} else {
+			*n.buf = append(*n.buf, `,"`...)
+		}
+	}
+
+	if n.prefix == "" {
+		*n.buf = escapeJSONInto(*n.buf, key)
+	} else if key == "" {
+		*n.buf = escapeJSONInto(*n.buf, n.prefix)
+		*n.buf = append(*n.buf, '.')
+	} else {
+		*n.buf = escapeJSONInto(*n.buf, n.prefix)
+		*n.buf = append(*n.buf, '.')
+		*n.buf = escapeJSONInto(*n.buf, key)
+	}
+	*n.buf = append(*n.buf, `":"[REDACTED]"`...)
+	return n
+}
+
+// Str appends a string field to the namespace.
+func (n *Namespace) Str(key, val string) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	if isSensitiveNamespaceKey(n.prefix, key) {
+		return n.appendRedactedField(key)
+	}
+	n.appendFieldPrefix(key)
+	*n.buf = ensureJSONCapacity(*n.buf, len(val)+2)
+	*n.buf = append(*n.buf, '"')
+	*n.buf = escapeJSONInto(*n.buf, val)
+	*n.buf = append(*n.buf, '"')
+	return n
+}
+
+// Int appends an int field to the namespace.
+func (n *Namespace) Int(key string, val int) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	if isSensitiveNamespaceKey(n.prefix, key) {
+		return n.appendRedactedField(key)
+	}
+	n.appendFieldPrefix(key)
+	*n.buf = ensureJSONCapacity(*n.buf, 24)
+	*n.buf = strconv.AppendInt(*n.buf, int64(val), 10)
+	return n
+}
+
+// Int64 appends an int64 field to the namespace.
+func (n *Namespace) Int64(key string, val int64) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	if isSensitiveNamespaceKey(n.prefix, key) {
+		return n.appendRedactedField(key)
+	}
+	n.appendFieldPrefix(key)
+	*n.buf = ensureJSONCapacity(*n.buf, 24)
+	*n.buf = strconv.AppendInt(*n.buf, val, 10)
+	return n
+}
+
+// Uint64 appends a uint64 field to the namespace.
+func (n *Namespace) Uint64(key string, val uint64) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	if isSensitiveNamespaceKey(n.prefix, key) {
+		return n.appendRedactedField(key)
+	}
+	n.appendFieldPrefix(key)
+	*n.buf = ensureJSONCapacity(*n.buf, 24)
+	*n.buf = strconv.AppendUint(*n.buf, val, 10)
+	return n
+}
+
+// Bool appends a bool field to the namespace.
+func (n *Namespace) Bool(key string, val bool) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	if isSensitiveNamespaceKey(n.prefix, key) {
+		return n.appendRedactedField(key)
+	}
+	n.appendFieldPrefix(key)
+	*n.buf = ensureJSONCapacity(*n.buf, 6)
+	if val {
+		*n.buf = append(*n.buf, "true"...)
+	} else {
+		*n.buf = append(*n.buf, "false"...)
+	}
+	return n
+}
+
+// Float64 appends a float64 field to the namespace, stringifying non-finite values safely.
+func (n *Namespace) Float64(key string, val float64) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	if isSensitiveNamespaceKey(n.prefix, key) {
+		return n.appendRedactedField(key)
+	}
+	if math.IsNaN(val) {
+		n.appendFieldPrefix(key)
+		*n.buf = ensureJSONCapacity(*n.buf, 6)
+		*n.buf = append(*n.buf, `"NaN"`...)
+		return n
+	}
+	if math.IsInf(val, 1) {
+		n.appendFieldPrefix(key)
+		*n.buf = ensureJSONCapacity(*n.buf, 6)
+		*n.buf = append(*n.buf, `"+Inf"`...)
+		return n
+	}
+	if math.IsInf(val, -1) {
+		n.appendFieldPrefix(key)
+		*n.buf = ensureJSONCapacity(*n.buf, 6)
+		*n.buf = append(*n.buf, `"-Inf"`...)
+		return n
+	}
+	n.appendFieldPrefix(key)
+	*n.buf = ensureJSONCapacity(*n.buf, 24)
+	*n.buf = strconv.AppendFloat(*n.buf, val, 'f', -1, 64)
+	return n
+}
+
+// Dur appends a time.Duration field to the namespace.
+func (n *Namespace) Dur(key string, val time.Duration) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	if isSensitiveNamespaceKey(n.prefix, key) {
+		return n.appendRedactedField(key)
+	}
+	n.appendFieldPrefix(key)
+	*n.buf = ensureJSONCapacity(*n.buf, 24)
+	*n.buf = strconv.AppendInt(*n.buf, int64(val), 10)
+	return n
+}
+
+// Time appends a time.Time field to the namespace.
+func (n *Namespace) Time(key string, val time.Time) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	if isSensitiveNamespaceKey(n.prefix, key) {
+		return n.appendRedactedField(key)
+	}
+	n.appendFieldPrefix(key)
+	*n.buf = ensureJSONCapacity(*n.buf, 40)
+	*n.buf = append(*n.buf, '"')
+	*n.buf = val.AppendFormat(*n.buf, time.RFC3339Nano)
+	*n.buf = append(*n.buf, '"')
+	return n
+}
+
+// Err appends an error field with key "error" to the namespace.
+func (n *Namespace) Err(err error) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	if err == nil {
+		return n
+	}
+	return n.ErrKey("error", err)
+}
+
+// ErrKey appends an error field with custom key to the namespace.
+func (n *Namespace) ErrKey(key string, err error) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	if err == nil {
+		return n
+	}
+	if isSensitiveNamespaceKey(n.prefix, key) {
+		return n.appendRedactedField(key)
+	}
+	n.appendFieldPrefix(key)
+	errStr := err.Error()
+	*n.buf = ensureJSONCapacity(*n.buf, len(errStr)+4)
+	*n.buf = append(*n.buf, '"')
+	*n.buf = escapeJSONInto(*n.buf, errStr)
+	*n.buf = append(*n.buf, '"')
+	return n
+}
+
+// Secret appends a redacted string field to the namespace.
+func (n *Namespace) Secret(key, val string) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	return n.appendRedactedField(key)
+}
+
+// StrRedacted appends a redacted string field to the namespace.
+func (n *Namespace) StrRedacted(key, val string) *Namespace {
+	if n == nil || n.buf == nil {
+		return n
+	}
+	return n.appendRedactedField(key)
+}
