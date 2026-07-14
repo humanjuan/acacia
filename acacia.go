@@ -36,6 +36,7 @@ package acacia
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -3039,4 +3040,67 @@ func (n *Namespace) StrRedacted(key, val string) *Namespace {
 		return n
 	}
 	return n.appendRedactedField(key)
+}
+
+// --- RawJSON Structured JSON APIs (Sprint 10.5) ---
+
+// RawJSON appends a pre-serialized JSON payload as a field to the event.
+func (e *Event) RawJSON(key string, raw []byte) *Event {
+	if e == nil {
+		return nil
+	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
+	}
+	e.buf = ensureJSONCapacity(e.buf, len(key)+4)
+	e.buf = append(e.buf, `,"`...)
+	e.buf = escapeJSONInto(e.buf, key)
+	e.buf = append(e.buf, `":`...)
+	e.buf = appendRawJSONValue(e.buf, raw)
+	return e
+}
+
+// RawJSON appends a pre-serialized JSON payload as a field to the object.
+func (o *Object) RawJSON(key string, raw []byte) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+	o.appendFieldPrefix(key)
+	*o.buf = appendRawJSONValue(*o.buf, raw)
+	return o
+}
+
+func rawJSONNeedsCompaction(raw []byte) bool {
+	return bytes.IndexByte(raw, '\n') >= 0 || bytes.IndexByte(raw, '\r') >= 0
+}
+
+func appendEscapedRawJSONString(dst []byte, raw []byte) []byte {
+	dst = ensureJSONCapacity(dst, len(raw)+2)
+	dst = append(dst, '"')
+	dst = escapeJSONInto(dst, string(raw))
+	dst = append(dst, '"')
+	return dst
+}
+
+func appendRawJSONValue(dst []byte, raw []byte) []byte {
+	if !json.Valid(raw) {
+		return appendEscapedRawJSONString(dst, raw)
+	}
+
+	if rawJSONNeedsCompaction(raw) {
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, raw); err == nil {
+			dst = ensureJSONCapacity(dst, compact.Len())
+			dst = append(dst, compact.Bytes()...)
+			return dst
+		}
+		return appendEscapedRawJSONString(dst, raw)
+	}
+
+	dst = ensureJSONCapacity(dst, len(raw))
+	dst = append(dst, raw...)
+	return dst
 }

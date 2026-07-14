@@ -159,8 +159,14 @@ lg.InfoEvent().
 ```
 
 ### Contrato de Diseño
-- **Validación**: RawJSON acepta cualquier JSON value válido según `json.Valid`: object, array, string, number, bool y null.
-- **Redacción de Datos**: Se documentará formalmente como **"trusted input only"**. El logger no realizará parsing ni redacción sobre `RawJSON` debido al alto coste en CPU de decodificar datos ya serializados en el hot path. Si se requiere redacción, se debe usar `Object` o `Any`. Si el JSON es inválido, se degradará de forma segura a un string escapado seguro para evitar corrupciones.
+- **Métodos Disponibles**: `Event.RawJSON(key, raw)` y `Object.RawJSON(key, raw)`. Las versiones para `Array` y `Namespace` quedan diferidas.
+- **Validación y Degradación**: Acepta cualquier valor JSON válido (object, array, string, number, bool, null) según `json.Valid`. Si el payload es inválido, se degrada de forma segura a un string escapado (se serializa como un literal de string JSON con caracteres de control escapados) previniendo corrupciones de sintaxis en el archivo final.
+- **Nil y Vacíos**: Un payload `nil` o `[]byte{}` vacío se degrada de forma segura a un string vacío (`""`).
+- **Protección contra Log Injection y CR/LF**: Si un payload válido contiene saltos de línea (`\n` o `\r`), se procesa mediante `json.Compact` en un paso de compresión interna antes de escribirlo para que el evento completo se emita en una sola línea física.
+- **Redacción de Datos**:
+  - **Externa**: Si la clave externa (key) se detecta como sensible, la totalidad del payload se redacta a `"[REDACTED]"`.
+  - **Interna (Trusted Input Only)**: Si la clave externa no es sensible, el payload no se parsea ni se redacta internamente, asumiendo que es una entrada confiable pre-redactada.
+- **Diferimientos**: `Array.RawJSON` y `Namespace.RawJSON` siguen diferidos. No se incluye soporte para Any ni OpenTelemetry.
 
 ---
 

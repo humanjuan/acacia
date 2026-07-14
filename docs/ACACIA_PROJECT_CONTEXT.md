@@ -46,7 +46,7 @@ In Progress / Implementing Structured JSON builders
 Next action:
 
 ```text
-Review Sprint 10.4 Group and Namespace, then decide whether to proceed to Sprint 10.5 — RawJSON.
+Review Sprint 10.5 RawJSON, then decide whether to proceed to Sprint 10.6 — Any fallback.
 ```
 
 Summary of Phase 09 results:
@@ -290,17 +290,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review Sprint 10.4 Group and Namespace, then decide whether to proceed to Sprint 10.5 — RawJSON.
+Review Sprint 10.5 RawJSON, then decide whether to proceed to Sprint 10.6 — Any fallback.
 ```
 
 Recommended commit message:
 
 ```text
-feat: add group and namespace structured JSON builders
+feat: add safe RawJSON structured fields
 ```
 
 After that:
 
 ```text
-Decide whether to proceed to Sprint 10.5 — RawJSON.
+Decide whether to proceed to Sprint 10.6 — Any fallback.
 ```

@@ -112,5 +112,14 @@ During Sprint 10.4, Group and Namespace APIs were designed and implemented:
 - **Rollback and Panic Safety**: Panic inside the `Namespace` callback rolls back all changes written within that namespace, restoring parent object state (`first` flag) and appending `"_acacia_error": "namespace callback panic"` inside the parent context.
 - **Redaction and Escaping**: Key segments and compound keys are checked case-insensitively for sensitive patterns without allocation. Values are redacted with `[REDACTED]` if any portion of the prefix or key segment matches. Prefix and key are properly escaped using `escapeJSONInto`.
 - **Err and Float64**: Non-finite Float64 values are mapped to string literals (`"NaN"`, `"+Inf"`, `"-Inf"`). `Err(nil)` is a no-op, and non-nil error values are appended under prefixed error keys.
-- **Deferred features**: `RawJSON` and `Any` remain deferred and isolated from the hot path.
+- **Deferred features**: `RawJSON` is moved to active implementation (this sprint). `Any` remains deferred.
+
+## Decision Update — Sprint 10.5 RawJSON
+- **RawJSON Support**: Implemented `Event.RawJSON(key, raw)` and `Object.RawJSON(key, raw)` allowing pre-serialized JSON insertion directly as structured field values.
+- **Syntactic Validation**: Standard library's `json.Valid` is used as the validation gate.
+- **Log Injection and CR/LF Protection**: Pretty-printed or multiline valid JSON is compacted with `json.Compact` into a single line. If compaction fails or payload is syntactically invalid JSON, it is degraded safely to a JSON-escaped string literal.
+- **Nil/Empty Safety**: Nil or empty `raw []byte` payload degrades to an empty string `""` safely without panicking.
+- **Redaction Policy**: If the external key is sensitive, the entire payload is redacted to `"[REDACTED]"` at the root.
+- **Trusted Input (No Internal Redaction)**: Valid, non-sensitive external keys do not trigger internal parsing or redaction of nested keys (contracted as *trusted input only*).
+- **Deferred features**: `Array.RawJSON`, `Namespace.RawJSON`, `Any` fallback, and OpenTelemetry integration remain deferred.
 
