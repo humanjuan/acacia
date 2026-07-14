@@ -137,7 +137,7 @@ lg.InfoEvent().Namespace("http", func(n *acacia.Namespace) {
 - **Manejo de Panics**:
   - En `Event.Namespace`, un panic hace rollback a la posición inicial y añade `,"_acacia_error":"namespace callback panic"` a nivel raíz.
   - En `Object.Namespace`, un panic hace rollback y añade `,"_acacia_error":"namespace callback panic"` dentro del objeto contenedor, restaurando correctamente el estado del delimitador coma (`o.first`).
-- **Redacción de Seguridad**: Se realiza de forma case-insensitive y sin allocs de memoria sobre:
+- **Redacción de Seguridad**: Se realiza de forma case-insensitive y evitando concatenación dinámica de clave compuesta en el matcher de redacción sobre:
   - Clave hoja sensible.
   - Prefijo sensible.
   - Algún segmento sensible dentro de la clave o el prefijo (delimitados por `.`, `_`, `-`).
@@ -191,10 +191,18 @@ lg.InfoEvent().
 ---
 
 ## 8. Redacción Recursiva Obligatoria
-Se auditará la redacción recursiva (Case-Insensitive) de las siguientes claves prohibidas:
-`password`, `passwd`, `pwd`, `token`, `access_token`, `refresh_token`, `authorization`, `cookie`, `set-cookie`, `api_key`, `apikey`, `secret`, `client_secret`, `private_key`.
+Se audita la redacción recursiva (Case-Insensitive y libre de separadores `-`, `_`, `.`) de las siguientes familias de claves prohibidas y sus variantes:
+`password`, `passwd`, `pwd`, `token`, `access_token`, `refresh_token`, `authorization`, `authorization_header`, `cookie`, `set-cookie`, `api_key`, `apikey`, `secret`, `client_secret`, `private_key`, `bearer`, `jwt`, `session`, `session_id`, `csrf`, `xsrf`, `x-api-key`.
 
-Cualquier clave que coincida parcial o totalmente con este listado reemplazará su valor por `[REDACTED]`.
+### Matriz de Comportamiento por Constructor:
+- **Flat Builder / Event**: Redacción por nombre de clave externa empleando `isSensitiveKey` con normalización estática (evitando concatenación dinámica de clave compuesta).
+- **Object Builder**: Redacción por nombre de clave recursiva a nivel de campos del objeto.
+- **Array Builder**: Redacción de campos sensibles si los elementos del arreglo se definen mediante callbacks de objetos tipados.
+- **Group**: Hereda la redacción automática y recursiva al reutilizar internamente el `Object Builder`.
+- **Namespace**: Aplica redacción recursiva conservadora por prefijo, clave, segmentos y compuestos evaluados de manera individual.
+- **RawJSON**: Redacta únicamente si la clave externa es sensible, reemplazando todo el payload por `"[REDACTED]"`. Por contrato *trusted input only*, no realiza análisis sintáctico interno ni redacción de claves anidadas para evitar penalizaciones de rendimiento.
+- **Any Fallback**: Camino lento basado en reflexión y codificación intermedia. Redacta externamente de forma completa y realiza redacción interna best-effort recursiva en mapas, structs y arreglos.
+- **Legacy Map Path**: Camino reflectivo clásico provisto con fines de compatibilidad. No ofrece las garantías de alocación optimizada ni el comportamiento recursivo detallado de los nuevos builders estructurados.
 
 ---
 

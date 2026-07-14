@@ -23,6 +23,7 @@ Este directorio almacena los reportes de cierre de cada fase de optimización y 
 * [Reporte de Group y Namespace de Fase 10](phase-10-group-namespace-report.md)
 * [Reporte de RawJSON de Fase 10](phase-10-rawjson-report.md)
 * [Reporte de Any fallback de Fase 10](phase-10-any-report.md)
+* [Reporte de Auditoría de Redacción Recursiva de Fase 10](phase-10-recursive-redaction-audit-report.md)
 
 
 

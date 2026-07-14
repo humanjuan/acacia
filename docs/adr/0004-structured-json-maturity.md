@@ -130,3 +130,10 @@ During Sprint 10.4, Group and Namespace APIs were designed and implemented:
 - **Robust Failure Fallback**: Non-serializable types (functions, channels, cyclic references, non-finite floats) do not panic; they degrade safely to `{"_acacia_error":"any marshal error"}`.
 - **Diferimientos**: `Array.Any` and `Namespace.Any` remain deferred.
 
+## Decision Update — Sprint 10.7 Recursive Redaction Audit
+- **Auditoría Cross-Builder**: Se realizó una auditoría completa de los mecanismos de redacción para todas las APIs de JSON estructurado (Flat, Object, Array, Group, Namespace, RawJSON y Any).
+- **Consistencia en Builders Tipados**: Se endureció la concordancia para la variante de clave `authorization_header` / `authorizationheader` en los selectores globales. Se validó la redacción en todos los tipos de datos (Str, Int, Float64, Bool, Time, Dur, ErrKey, Secret, StrRedacted).
+- **RawJSON Trusted Input Only**: Se confirmó y mantuvo la separación de fronteras: las claves externas no sensibles insertadas mediante RawJSON no sufren redacción interna ni sobrecarga de análisis, preservando el contrato de trusted input.
+- **Any Best-Effort**: Se re-verificó el comportamiento recursivo best-effort en tipos estructurados dinámicos sin compromisos absolutos de redacción perfecta.
+- **Legacy Map Path**: Documentado explícitamente para compatibilidad v2.x, señalando que la redacción en este camino depende del flujo reflectivo clásico de Acacia.
+

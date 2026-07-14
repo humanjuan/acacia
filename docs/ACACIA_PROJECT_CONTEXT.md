@@ -46,7 +46,7 @@ In Progress / Implementing Structured JSON builders
 Next action:
 
 ```text
-Review Sprint 10.6 Any fallback, then decide whether to proceed to Sprint 10.7 — Recursive Redaction Audit.
+Review Sprint 10.7 Recursive Redaction Audit, then decide whether to proceed to Sprint 10.8 — Documentation and Examples.
 ```
 
 Summary of Phase 09 results:
@@ -290,17 +290,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review Sprint 10.6 Any fallback, then decide whether to proceed to Sprint 10.7 — Recursive Redaction Audit.
+Review Sprint 10.7 Recursive Redaction Audit, then decide whether to proceed to Sprint 10.8 — Documentation and Examples.
 ```
 
 Recommended commit message:
 
 ```text
-feat: add safe Any fallback for structured JSON
+fix: harden recursive redaction across structured JSON builders
 ```
 
 After that:
 
 ```text
-Decide whether to proceed to Sprint 10.7 — Recursive Redaction Audit.
+Decide whether to proceed to Sprint 10.8 — Documentation and Examples.
 ```

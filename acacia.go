@@ -1762,7 +1762,7 @@ func isSensitiveKey(key string) bool {
 	normalized := buf[:w]
 
 	switch string(normalized) {
-	case "authorization", "cookie", "setcookie", "token", "accesstoken", "refreshtoken",
+	case "authorization", "authorizationheader", "cookie", "setcookie", "token", "accesstoken", "refreshtoken",
 		"password", "passwd", "pwd", "apikey", "privatekey", "clientsecret", "secret",
 		"bearer", "jwt", "session", "sessionid", "csrf", "xsrf", "xapikey":
 		return true
@@ -2768,7 +2768,7 @@ func isSensitiveCompoundKey(prefix, key string) bool {
 
 	normalized := buf[:w]
 	switch string(normalized) {
-	case "authorization", "cookie", "setcookie", "token", "accesstoken", "refreshtoken",
+	case "authorization", "authorizationheader", "cookie", "setcookie", "token", "accesstoken", "refreshtoken",
 		"password", "passwd", "pwd", "apikey", "privatekey", "clientsecret", "secret",
 		"bearer", "jwt", "session", "sessionid", "csrf", "xsrf", "xapikey":
 		return true
