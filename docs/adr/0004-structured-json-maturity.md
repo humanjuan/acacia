@@ -121,5 +121,12 @@ During Sprint 10.4, Group and Namespace APIs were designed and implemented:
 - **Nil/Empty Safety**: Nil or empty `raw []byte` payload degrades to an empty string `""` safely without panicking.
 - **Redaction Policy**: If the external key is sensitive, the entire payload is redacted to `"[REDACTED]"` at the root.
 - **Trusted Input (No Internal Redaction)**: Valid, non-sensitive external keys do not trigger internal parsing or redaction of nested keys (contracted as *trusted input only*).
-- **Deferred features**: `Array.RawJSON`, `Namespace.RawJSON`, `Any` fallback, and OpenTelemetry integration remain deferred.
+- **Deferred features**: `RawJSON` is moved to active implementation (previous sprint). `Any` is moved to active implementation (this sprint). OpenTelemetry integration remains deferred.
+
+## Decision Update — Sprint 10.6 Any fallback
+- **Any Support**: Implemented `Event.Any(key, val)` and `Object.Any(key, val)` for dynamic JSON serialization of arbitrary Go objects.
+- **Slow-Path Fallback**: Documented as an explicit slow-path, utilizing `encoding/json` and isolated reflection.
+- **Internal Redaction (Best-Effort)**: Valid nested maps, structs, and slices undergo recursive best-effort redaction. If a key matches a sensitive pattern, its value is replaced with `"[REDACTED]"`.
+- **Robust Failure Fallback**: Non-serializable types (functions, channels, cyclic references, non-finite floats) do not panic; they degrade safely to `{"_acacia_error":"any marshal error"}`.
+- **Diferimientos**: `Array.Any` and `Namespace.Any` remain deferred.
 

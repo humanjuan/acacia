@@ -3104,3 +3104,91 @@ func appendRawJSONValue(dst []byte, raw []byte) []byte {
 	dst = append(dst, raw...)
 	return dst
 }
+
+// --- Any Structured JSON APIs (Sprint 10.6) ---
+
+// Any appends a dynamic field to the event using the slow-path fallback.
+func (e *Event) Any(key string, val interface{}) *Event {
+	if e == nil {
+		return nil
+	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
+	}
+	e.buf = ensureJSONCapacity(e.buf, len(key)+4)
+	e.buf = append(e.buf, `,"`...)
+	e.buf = escapeJSONInto(e.buf, key)
+	e.buf = append(e.buf, `":`...)
+	e.buf = appendAnyJSONValue(e.buf, val)
+	return e
+}
+
+// Any appends a dynamic field to the object using the slow-path fallback.
+func (o *Object) Any(key string, val interface{}) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+	o.appendFieldPrefix(key)
+	*o.buf = appendAnyJSONValue(*o.buf, val)
+	return o
+}
+
+func appendAnyMarshalError(dst []byte) []byte {
+	dst = ensureJSONCapacity(dst, 37)
+	dst = append(dst, `{"_acacia_error":"any marshal error"}`...)
+	return dst
+}
+
+func redactDecodedJSONValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		for k, child := range val {
+			if isSensitiveKey(k) {
+				val[k] = "[REDACTED]"
+			} else {
+				val[k] = redactDecodedJSONValue(child)
+			}
+		}
+		return val
+	case []interface{}:
+		for i, child := range val {
+			val[i] = redactDecodedJSONValue(child)
+		}
+		return val
+	default:
+		return v
+	}
+}
+
+func appendAnyJSONValue(dst []byte, val interface{}) []byte {
+	if val == nil {
+		dst = ensureJSONCapacity(dst, 4)
+		dst = append(dst, "null"...)
+		return dst
+	}
+
+	raw, err := json.Marshal(val)
+	if err != nil {
+		return appendAnyMarshalError(dst)
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+
+	var decoded interface{}
+	if err := dec.Decode(&decoded); err != nil {
+		return appendAnyMarshalError(dst)
+	}
+
+	decoded = redactDecodedJSONValue(decoded)
+
+	sanitized, err := json.Marshal(decoded)
+	if err != nil {
+		return appendAnyMarshalError(dst)
+	}
+
+	return appendRawJSONValue(dst, sanitized)
+}

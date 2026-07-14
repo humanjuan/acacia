@@ -181,9 +181,12 @@ lg.InfoEvent().
 ```
 
 ### Contrato de Diseño
-- **Rendimiento**: Se procesa con reflection o `encoding/json` en un buffer temporal. No debe ser utilizado en caminos de alta frecuencia.
-- **Redacción**: Best-effort (redacción básica si puede ser transformado a un mapa/estructura estándar, pero sin compromisos absolutos).
-- **Ciclos / Tipos Inválidos**: Si se detecta un puntero cíclico, funciones o canales, se registrará un error seguro en lugar de paniquear.
+- **Rendimiento**: Se procesa como un "camino lento" explícito mediante `encoding/json` y reflexión aislada. No se recomienda su uso en caminos de alta frecuencia o hot paths de logging.
+- **Métodos**: `Event.Any(key string, val interface{})` y `Object.Any(key string, val interface{})`. Las versiones para `Array` y `Namespace` quedan diferidas.
+- **Redacción de Datos**:
+  - **Externa**: Si la clave externa es sensible, el payload completo es redactado como `"[REDACTED]"`.
+  - **Interna (Best-Effort)**: Si la clave externa no es sensible, se ejecuta una redacción interna sobre mapas, structs y slices decodificados recursivamente. Si alguna clave dentro de la estructura coincide con un patrón sensible, su valor asociado es reemplazado por `"[REDACTED]"`. No se garantiza redacción perfecta sobre tipos de datos altamente complejos o serializaciones no estándar.
+- **Manejo de Fallas, Ciclos y Tipos No Soportados**: Valores no serializables (funciones, canales, referencias cíclicas, números Float64 no finitos) no provocan pánicos ni fugan información; en su lugar, se serializan como un sub-objeto de error seguro: `{"_acacia_error":"any marshal error"}`.
 
 ---
 

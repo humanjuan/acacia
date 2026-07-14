@@ -22,6 +22,7 @@ Este directorio almacena los reportes de cierre de cada fase de optimización y 
 * [Reporte de Array Builder de Fase 10](phase-10-array-builder-report.md)
 * [Reporte de Group y Namespace de Fase 10](phase-10-group-namespace-report.md)
 * [Reporte de RawJSON de Fase 10](phase-10-rawjson-report.md)
+* [Reporte de Any fallback de Fase 10](phase-10-any-report.md)
 
 
 
