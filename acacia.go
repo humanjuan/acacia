@@ -2282,6 +2282,46 @@ func (o *Object) Object(key string, fn func(*Object)) *Object {
 	return o
 }
 
+func (o *Object) Array(key string, fn func(*Array)) *Object {
+	if o == nil || o.buf == nil {
+		return o
+	}
+	if isSensitiveKey(key) {
+		return o.appendRedactedField(key)
+	}
+
+	wasFirst := o.first
+	startOffset := len(*o.buf)
+	o.appendFieldPrefix(key)
+	*o.buf = append(*o.buf, '[')
+
+	var errPanic interface{}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errPanic = r
+			}
+		}()
+		if fn == nil {
+			// Nil callback emits empty array
+		} else {
+			nested := Array{buf: o.buf, first: true}
+			fn(&nested)
+		}
+	}()
+
+	if errPanic != nil {
+		*o.buf = (*o.buf)[:startOffset]
+		o.first = wasFirst
+		o.appendFieldPrefix("_acacia_error")
+		*o.buf = append(*o.buf, `"array callback panic"`...)
+	} else {
+		*o.buf = ensureJSONCapacity(*o.buf, 1)
+		*o.buf = append(*o.buf, ']')
+	}
+	return o
+}
+
 func (e *Event) Object(key string, fn func(*Object)) *Event {
 	if e == nil {
 		return nil
@@ -2319,6 +2359,222 @@ func (e *Event) Object(key string, fn func(*Object)) *Event {
 	} else {
 		e.buf = ensureJSONCapacity(e.buf, 1)
 		e.buf = append(e.buf, '}')
+	}
+	return e
+}
+
+type Array struct {
+	buf   *[]byte
+	first bool
+}
+
+func (a *Array) appendValuePrefix() {
+	if a == nil || a.buf == nil {
+		return
+	}
+	if a.first {
+		a.first = false
+	} else {
+		*a.buf = append(*a.buf, ',')
+	}
+}
+
+func (a *Array) Str(val string) *Array {
+	if a == nil || a.buf == nil {
+		return a
+	}
+	a.appendValuePrefix()
+	*a.buf = ensureJSONCapacity(*a.buf, len(val)+2)
+	*a.buf = append(*a.buf, '"')
+	*a.buf = escapeJSONInto(*a.buf, val)
+	*a.buf = append(*a.buf, '"')
+	return a
+}
+
+func (a *Array) Int(val int) *Array {
+	if a == nil || a.buf == nil {
+		return a
+	}
+	a.appendValuePrefix()
+	*a.buf = ensureJSONCapacity(*a.buf, 24)
+	*a.buf = strconv.AppendInt(*a.buf, int64(val), 10)
+	return a
+}
+
+func (a *Array) Int64(val int64) *Array {
+	if a == nil || a.buf == nil {
+		return a
+	}
+	a.appendValuePrefix()
+	*a.buf = ensureJSONCapacity(*a.buf, 24)
+	*a.buf = strconv.AppendInt(*a.buf, val, 10)
+	return a
+}
+
+func (a *Array) Uint64(val uint64) *Array {
+	if a == nil || a.buf == nil {
+		return a
+	}
+	a.appendValuePrefix()
+	*a.buf = ensureJSONCapacity(*a.buf, 24)
+	*a.buf = strconv.AppendUint(*a.buf, val, 10)
+	return a
+}
+
+func (a *Array) Bool(val bool) *Array {
+	if a == nil || a.buf == nil {
+		return a
+	}
+	a.appendValuePrefix()
+	*a.buf = ensureJSONCapacity(*a.buf, 6)
+	if val {
+		*a.buf = append(*a.buf, "true"...)
+	} else {
+		*a.buf = append(*a.buf, "false"...)
+	}
+	return a
+}
+
+func (a *Array) Float64(val float64) *Array {
+	if a == nil || a.buf == nil {
+		return a
+	}
+	a.appendValuePrefix()
+	if math.IsNaN(val) {
+		*a.buf = ensureJSONCapacity(*a.buf, 6)
+		*a.buf = append(*a.buf, `"NaN"`...)
+		return a
+	}
+	if math.IsInf(val, 1) {
+		*a.buf = ensureJSONCapacity(*a.buf, 6)
+		*a.buf = append(*a.buf, `"+Inf"`...)
+		return a
+	}
+	if math.IsInf(val, -1) {
+		*a.buf = ensureJSONCapacity(*a.buf, 6)
+		*a.buf = append(*a.buf, `"-Inf"`...)
+		return a
+	}
+	*a.buf = ensureJSONCapacity(*a.buf, 24)
+	*a.buf = strconv.AppendFloat(*a.buf, val, 'f', -1, 64)
+	return a
+}
+
+func (a *Array) Dur(val time.Duration) *Array {
+	if a == nil || a.buf == nil {
+		return a
+	}
+	a.appendValuePrefix()
+	*a.buf = ensureJSONCapacity(*a.buf, 24)
+	*a.buf = strconv.AppendInt(*a.buf, int64(val), 10)
+	return a
+}
+
+func (a *Array) Time(val time.Time) *Array {
+	if a == nil || a.buf == nil {
+		return a
+	}
+	a.appendValuePrefix()
+	*a.buf = ensureJSONCapacity(*a.buf, 40)
+	*a.buf = append(*a.buf, '"')
+	*a.buf = val.AppendFormat(*a.buf, time.RFC3339Nano)
+	*a.buf = append(*a.buf, '"')
+	return a
+}
+
+func (a *Array) Err(err error) *Array {
+	if a == nil || a.buf == nil {
+		return a
+	}
+	if err == nil {
+		return a
+	}
+	a.appendValuePrefix()
+	errStr := err.Error()
+	*a.buf = ensureJSONCapacity(*a.buf, len(errStr)+2)
+	*a.buf = append(*a.buf, '"')
+	*a.buf = escapeJSONInto(*a.buf, errStr)
+	*a.buf = append(*a.buf, '"')
+	return a
+}
+
+func (a *Array) Object(fn func(*Object)) *Array {
+	if a == nil || a.buf == nil {
+		return a
+	}
+
+	wasFirst := a.first
+	startOffset := len(*a.buf)
+
+	a.appendValuePrefix()
+	*a.buf = ensureJSONCapacity(*a.buf, 1)
+	*a.buf = append(*a.buf, '{')
+
+	var errPanic interface{}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errPanic = r
+			}
+		}()
+		if fn == nil {
+			// Nil callback emits empty object
+		} else {
+			nested := Object{buf: a.buf, first: true}
+			fn(&nested)
+		}
+	}()
+
+	if errPanic != nil {
+		*a.buf = (*a.buf)[:startOffset]
+		a.first = wasFirst
+		a.appendValuePrefix()
+		*a.buf = ensureJSONCapacity(*a.buf, 44)
+		*a.buf = append(*a.buf, `{"_acacia_error":"object callback panic"}`...)
+	} else {
+		*a.buf = ensureJSONCapacity(*a.buf, 1)
+		*a.buf = append(*a.buf, '}')
+	}
+	return a
+}
+
+func (e *Event) Array(key string, fn func(*Array)) *Event {
+	if e == nil {
+		return nil
+	}
+	if isSensitiveKey(key) {
+		return e.appendRedactedField(key)
+	}
+
+	startOffset := len(e.buf)
+
+	e.buf = ensureJSONCapacity(e.buf, len(key)+4)
+	e.buf = append(e.buf, `,"`...)
+	e.buf = escapeJSONInto(e.buf, key)
+	e.buf = append(e.buf, `":[`...)
+
+	var errPanic interface{}
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errPanic = r
+			}
+		}()
+		if fn == nil {
+			// Nil callback emits empty array
+		} else {
+			arr := Array{buf: &e.buf, first: true}
+			fn(&arr)
+		}
+	}()
+
+	if errPanic != nil {
+		e.buf = e.buf[:startOffset]
+		e.buf = ensureJSONCapacity(e.buf, 40)
+		e.buf = append(e.buf, `,"_acacia_error":"array callback panic"`...)
+	} else {
+		e.buf = ensureJSONCapacity(e.buf, 1)
+		e.buf = append(e.buf, ']')
 	}
 	return e
 }

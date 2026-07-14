@@ -90,3 +90,16 @@ During Sprint 10.2, the callback-based `Object` builder API was designed and imp
 - **Escape Safety**: Keys and values inside nested objects are escaped via `escapeJSONInto` with ASCII fast-path scanner.
 - **Float64 Safety**: Reuses the Float64 safe non-finite float rules.
 
+## Decision Update — Sprint 10.3 Array Builder
+
+During Sprint 10.3, the callback-based `Array` builder API was designed and implemented:
+- **Core Elements**: The `Array` struct supports typed primitive elements and nested `Object` elements without reflection.
+- **Rollback and Panic Safety**:
+  - Panic in the array callback rolls back the entire array field and appends `"_acacia_error": "array callback panic"`.
+  - Panic inside a nested `Object` element within the array rolls back only that object element, appending `{"_acacia_error": "object callback panic"}` within the array, preserving all other elements.
+- **Nil and Empty Callbacks**: Safely intercepted, emitting an empty array `[]`.
+- **Zero-Value Safeness**: Instantiating a zero-value `Array` struct is a safe no-op.
+- **Escaping and Redaction**: Values inside the array are properly escaped, and recursive redaction is fully enforced inside object elements within arrays.
+- **Err and Float64**: `Err(nil)` is omitted, and non-finite `Float64` values (`NaN`, `+Inf`, `-Inf`) are stringified safely.
+- **Deferred features**: Nested arrays, `RawJSON` in arrays, and `Any` inside arrays are deferred to keep the core complexity low.
+

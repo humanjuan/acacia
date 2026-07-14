@@ -93,11 +93,15 @@ lg.InfoEvent().
 ```
 
 ### Contrato de Diseño
-- **Métodos Mínimos**: El builder de arrays soportará adiciones tipadas: `Str`, `Int`, `Int64`, `Uint64`, `Bool`, `Float64`, `Time`, `Dur`, `Err`, `Object`, `RawJSON`, `Any`.
-- **Arrays Anidados (Arrays dentro de arrays)**: Se postergan para una etapa posterior como una extensión futura para limitar la complejidad inicial. Para el Sprint 10.3 inicial, se soportan únicamente arrays primitivos y arrays de objetos.
-- **Arrays Vacíos**: Emiten `[]`.
-- **Redacción Recursiva**: Se aplica de forma automática sobre los elementos del array (especialmente en arrays de objetos).
-- **Callbacks Nil o Panics**: Siguen la misma política de rollback seguro y adición del campo constante `"_acacia_error": "array callback panic"` para evitar corromper la sintaxis de salida (el detalle crudo del pánico no se registrará en el log).
+- **Métodos Mínimos (Sprint 10.3 Core)**: El builder de arrays soporta adiciones tipadas primitivas (`Str`, `Int`, `Int64`, `Uint64`, `Bool`, `Float64`, `Time`, `Dur`, `Err`) y objetos (`Object`).
+- **Postergaciones**: Se posterga el soporte para arrays anidados (arrays dentro de arrays), `RawJSON` y `Any` dentro de arrays para fases posteriores.
+- **Arrays Vacíos o Nil**: Emiten `[]` de forma segura.
+- **Redacción Recursiva**: Se aplica de forma automática sobre los campos sensibles de cualquier objeto estructurado dentro del array.
+- **Callbacks Nil o Panics**:
+  - Un callback `nil` en el array emite `[]`.
+  - Un pánico en el callback del array completo ejecuta rollback del campo y añade `"_acacia_error": "array callback panic"` en el elemento padre.
+  - Un pánico dentro de un elemento `Object` individual dentro del array ejecuta rollback de ese elemento concreto y emite `{"_acacia_error": "object callback panic"}` dentro del array, preservando el resto de los elementos.
+- **Err y Float64**: `Err(nil)` es no-op. `Err(error)` emite el mensaje como string JSON. `Float64` no finitos se serializan como strings JSON válidos.
 
 ---
 
