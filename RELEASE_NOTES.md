@@ -1,6 +1,6 @@
-# Release Notes (v2.x Candidate)
+# Release Notes (v2.4.0-rc.1)
 
-Welcome to the new release candidate of **Acacia**, the high-performance concurrent logger for Go.
+These notes describe Acacia v2.4.0-rc.1, the first release candidate for the v2.4.0 line.
 
 This release represents a significant engineering effort focused on performance optimization, filesystem safety, robust lifecycle controls, and sensitive data protection.
 

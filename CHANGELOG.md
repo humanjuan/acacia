@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased] (v2.x Candidate)
+## [Unreleased]
+
+_No unreleased changes yet._
+
+## [2.4.0-rc.1] - 2026-07-15
 
 ### Added
 * **Structured JSON Maturity:** Completed structured JSON builders: `Object` for nesting, `Array` for records, `Group` for semantic scopes, and `Namespace` for flat prefixed key scopes. Validated under the documented Final SSD Hard Validation run.

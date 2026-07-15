@@ -2,7 +2,7 @@
 
 ## Current Validation Status
 
-Acacia has completed the structured JSON capabilities maturity work and the Final SSD Hard Validation run for the v2.x release candidate.
+Acacia has completed the structured JSON capabilities maturity work and the Final SSD Hard Validation run for the v2.4.0-rc.1 release candidate.
 
 ---
 
