@@ -1,22 +1,22 @@
-# ADR 0002: Requisitos de Reproducibilidad en Claims de Rendimiento
+# ADR 0002: Reproducible Performance Claims
 
-## Estatus
-Aceptado
+## Status
+Accepted
 
-## Contexto
-El rendimiento de Acacia es uno de sus principales atributos de venta y diseño (claims de ~6M logs/sec y 0 allocs/op). Sin embargo, en el desarrollo de software es fácil cometer errores de medición o publicar afirmaciones falsas que minan la confianza del usuario final. En la versión actual de Acacia, el camino structured JSON genera asignaciones dinámicas y overhead que contradicen los claims generales de "0 allocations".
+## Context
+Acacia's performance is one of its primary attributes. However, in software development, it is easy to publish inaccurate performance statements that erode user trust. In structured logging, builder APIs can generate dynamic allocations depending on nesting, which conflicts with general "zero allocation" claims.
 
-## Decisión
-Para garantizar la veracidad de toda métrica de rendimiento reportada públicamente:
-1. **Comandos Reproducibles:** Todo número o claim de rendimiento en la documentación o en el README debe contar con un comando `go test` reproducible documentado.
-2. **Prueba Hostil con `GOMAXPROCS=1`:** Se exige validar los benchmarks bajo la restricción de `GOMAXPROCS=1` como prueba extrema obligatoria para revelar la contención y la presión real sobre el recolector de basura.
-3. **Clasificación por Ruta:** No se permiten claims generales de "Zero-Allocation" que cubran de forma ambigua todas las funcionalidades. Los benchmarks y reportes deben separar estrictamente los resultados de:
-   * Fast path (String / []byte)
-   * Structured path (JSON Builder v3)
-   * Legacy path (Compatibilidad con mapas v2)
-   * Sanitized path (Redacción de campos sensibles)
-4. **Comparaciones Transparentes:** No se publicarán comparaciones contra otros loggers (como Zap, Zerolog) a menos que se incluya la metodología de prueba exacta y el código fuente del benchmark comparativo.
+## Decision
+To ensure the accuracy of all publicly reported performance metrics:
+1. **Reproducible Commands:** Any performance claim in the documentation or README must include a reproducible `go test` command.
+2. **Contention Testing with `GOMAXPROCS=1`:** Benchmarks must be validated under `GOMAXPROCS=1` limits to reveal synchronization bottlenecks and garbage collection pressure.
+3. **Write Path Classification:** General "zero allocation" claims that cover the entire library are not allowed. Benchmarks and reports must separate results for:
+   * Direct paths (String / []byte)
+   * Builder paths (JSON Builders)
+   * Legacy paths (Map-based compatibility)
+   * Redaction paths (Sanitization overhead)
+4. **Transparent Comparisons:** Comparisons against other loggers (e.g. Zap, Zerolog) will not be published unless the exact test methodology and benchmark source code are provided.
 
-## Consecuencias
-* **Positivas:** Mayor transparencia técnica, eliminación de falsos positivos en las mediciones, y un desarrollo guiado por datos reproducibles reales.
-* **Negativas:** Mayor esfuerzo requerido por el desarrollador para documentar y correr múltiples combinaciones de configuraciones y ambientes de prueba.
+## Consequences
+* **Positive:** Improved technical transparency, elimination of false performance assumptions, and data-driven development.
+* **Negative:** More developer effort is needed to document and run multiple test configurations and benchmark variations.

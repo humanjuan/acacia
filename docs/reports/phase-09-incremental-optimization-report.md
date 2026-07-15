@@ -1,7 +1,9 @@
 # Phase 09 Incremental Optimization Report
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 ## Objective
-The objective of this sprint was to implement a safe, surgical, and backward-compatible optimization (Option 1) to recover the performance regressions observed in the Acacia Release Candidate (RC). The focus was on reducing unbounded buffer allocations, managing buffer growth during log spikes, and executing proactive, size-based flushes.
+The objective of this sprint was to implement a safe, surgical, and backward-compatible optimization (Option 1) to recover from the performance regressions observed in the Acacia Release Candidate (RC). The focus was on reducing unbounded buffer allocations, managing buffer growth during log spikes, and executing proactive, size-based flushes.
 
 ## Scope
 - Implementing minimum initial capacities and size boundaries on the active double-buffer.

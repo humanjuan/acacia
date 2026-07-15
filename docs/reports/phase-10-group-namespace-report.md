@@ -1,43 +1,44 @@
 # Phase 10 — Group and Namespace Report
+*This is a historical engineering report. The filename is kept for audit continuity.*
 
-## 1. Objetivo y Alcance
-El objetivo principal del Sprint 10.4 es diseñar e incorporar soporte para APIs de ergonomía y agrupamiento estructurado en Acacia Logger:
-* **Group (Estructura Anidada Real)**: Agrupa campos utilizando el tipo `Object` existente. Es compatible con las políticas del Object Builder de callbacks sin reflexión, rollback ante pánicos y redacción recursiva.
-* **Namespace (Claves Planas con Prefijo)**: Aplana los campos con un delimitador (`"prefix.key"`). Define un scope de callbacks dedicado `*acacia.Namespace` libre de métodos de finalización de evento (`Msg` o `Send`), lo que previene cierres prematuros de línea.
-* **Manejo de Callback Nil/Vacío**: Las llamadas a callbacks vacíos o `nil` se manejan como no-ops seguros que no emiten datos corruptos.
-* **Rollback ante Panic**: El pánico en callbacks de namespace/group ejecuta un rollback completo del búfer del evento o del objeto padre para evitar corrupciones de sintaxis JSON, y emite un indicador seguro `"_acacia_error"` sin fugar el mensaje crudo del pánico.
-* **Seguridad y Redacción**: Se realiza redacción de seguridad case-insensitive sobre el prefijo, la clave de la hoja, los segmentos individuales separados por `.`, `_`, o `-`, o la clave compuesta normalizada.
-* **Escapado y Codificación**: Tanto el prefijo como la clave final se escapan con `escapeJSONInto` para mitigar ataques de log injection.
+## 1. Objective and Scope
+The primary objective of Sprint 10.4 is to design and incorporate support for ergonomic APIs and structured grouping in Acacia Logger:
+* **Group (Real Nested Structure)**: Groups fields using the existing `Object` type. It is compatible with the Object Builder policies of reflection-free callbacks, rollback on panics, and recursive redaction.
+* **Namespace (Flat Keys with Prefix)**: Flattens fields with a delimiter (`"prefix.key"`). It defines a dedicated callback scope `*acacia.Namespace` free of event finalization methods (`Msg` or `Send`), preventing premature line closures.
+* **Nil/Empty Callback Handling**: Calls with empty or `nil` callbacks are handled as safe no-ops that do not emit corrupt data.
+* **Rollback on Panic**: A panic in namespace/group callbacks executes a full rollback of the event buffer or parent object to avoid JSON syntax corruption, and emits a safe `"_acacia_error"` indicator without leaking the raw panic message.
+* **Security and Redaction**: Case-insensitive security redaction is performed on the prefix, the leaf key, individual segments separated by `.`, `_`, or `-`, or the normalized compound key.
+* **Escaping and Encoding**: Both the prefix and final key are escaped with `escapeJSONInto` to mitigate log injection attacks.
 
-No se incluye en esta fase el soporte para `RawJSON`, `Any` o `OpenTelemetry`.
-
----
-
-## 2. Archivos Modificados y Creados
-* **Modificado**:
-  * acacia.go: Implementación del struct `Namespace` y sus métodos asociados, adición de los métodos `Group` y `Namespace` a `Event` e `Object`, y helpers de redacción de clave compuesta.
-  * docs/ACACIA_PROJECT_CONTEXT.md: Actualización del estado actual de la fase, next actions y commit recomendado.
-  * docs/PHASE_10_STRUCTURED_JSON_API_CONTRACT.md: Documentación y refinamiento de la dualidad de Group vs Namespace.
-  * docs/adr/0004-structured-json-maturity.md: Inclusión del registro de decisiones técnicas del Sprint 10.4.
-  * docs/reports/README.md: Registro del enlace al reporte público.
-* **Creado**:
-  * test/phase10_group_namespace_test.go: Pruebas unitarias que validan correctitud de flujos, pánicos, redacción en segmentos, escapado y regresiones.
-  * test/phase10_group_namespace_fuzz_test.go: Fuzzing target `FuzzPhase10NamespaceEscapingAndRedaction` para probar robustez contra inyección y pánicos.
-  * test/phase10_group_namespace_benchmark_test.go: Suite de benchmarks diagnósticos para Group y Namespace.
+Support for `RawJSON`, `Any`, or `OpenTelemetry` is not included in this phase.
 
 ---
 
-## 3. Detalles de Implementación y APIs
+## 2. Modified and Created Files
+* **Modified**:
+  * acacia.go: Implementation of the `Namespace` struct and its associated methods, addition of `Group` and `Namespace` methods to `Event` and `Object`, and compound key redaction helpers.
+  * docs/ACACIA_PROJECT_CONTEXT.md: Update of the current phase status, next actions, and recommended commit.
+  * docs/PHASE_10_STRUCTURED_JSON_API_CONTRACT.md: Documentation and refinement of the Group vs Namespace duality.
+  * docs/adr/0004-structured-json-maturity.md: Inclusion of the technical decisions record for Sprint 10.4.
+  * docs/reports/README.md: Registration of the link to the public report.
+* **Created**:
+  * test/phase10_group_namespace_test.go: Unit tests validating flow correctness, panics, segment redaction, escaping, and regressions.
+  * test/phase10_group_namespace_fuzz_test.go: Fuzzing target `FuzzPhase10NamespaceEscapingAndRedaction` to test robustness against injection and panics.
+  * test/phase10_group_namespace_benchmark_test.go: Diagnostic benchmark suite for Group and Namespace.
 
-### API de Group
-Implementado como un alias semántico de `Object` para reutilizar de forma limpia el Object Builder de Acacia:
+---
+
+## 3. Implementation Details and APIs
+
+### Group API
+Implemented as a semantic alias of `Object` to cleanly reuse Acacia's Object Builder:
 ```go
 func (e *Event) Group(key string, fn func(*Object)) *Event
 func (o *Object) Group(key string, fn func(*Object)) *Object
 ```
 
-### API de Namespace
-Se implementa una estructura dedicada `Namespace` con métodos encadenados que no exponen mecanismos de envío:
+### Namespace API
+A dedicated `Namespace` structure is implemented with chained methods that do not expose sending mechanisms:
 ```go
 type Namespace struct {
     buf     *[]byte
@@ -63,17 +64,17 @@ func (n *Namespace) Secret(key, val string) *Namespace
 func (n *Namespace) StrRedacted(key, val string) *Namespace
 ```
 
-### Redacción conservadora sin concatenación dinámica de clave compuesta
-Para evitar la alocación de strings durante la composición de la clave al verificar la redacción, se agregaron dos helpers:
-1. `isSensitiveCompoundKey(prefix, key string) bool`: normaliza de forma consecutiva (simulando la unión con `.`) y verifica las claves prohibidas sobre un búfer de pila fijo.
-2. `hasSensitiveSegment(s string) bool`: itera el string buscando segmentos delimitados por `.`, `_` o `-` y los valida individualmente.
+### Conservative Redaction Without Dynamic Compound Key Concatenation
+To avoid string allocations during key composition when checking for redaction, two helpers were added:
+1. `isSensitiveCompoundKey(prefix, key string) bool`: consecutively normalizes (simulating joining with `.`) and checks forbidden keys on a fixed stack buffer.
+2. `hasSensitiveSegment(s string) bool`: iterates through the string looking for segments delimited by `.`, `_`, or `-` and validates them individually.
 
 ---
 
-## 4. Evidencia de Pruebas de Correctitud
-Se ejecutaron con éxito todas las suites de pruebas:
+## 4. Correctness Testing Evidence
+All test suites were executed successfully:
 
-### Pruebas Unitarias Generales (`go test ./...`)
+### General Unit Tests (`go test ./...`)
 ```text
 ?   	github.com/humanjuan/acacia/v2	[no test files]
 ?   	github.com/humanjuan/acacia/v2/examples/basic	[no test files]
@@ -81,8 +82,8 @@ Se ejecutaron con éxito todas las suites de pruebas:
 ok  	github.com/humanjuan/acacia/v2/test	18.285s
 ```
 
-### Pruebas Unitarias Enfocadas (`go test -v ./test -run 'TestPhase10(Group|Namespace)'`)
-Se aprobaron las 26 pruebas de la suite de Group y Namespace:
+### Focused Unit Tests (`go test -v ./test -run 'TestPhase10(Group|Namespace)'`)
+All 26 tests of the Group and Namespace suite were approved:
 * `TestPhase10GroupEventEmitsNestedObject` - PASS
 * `TestPhase10GroupObjectEmitsNestedObject` - PASS
 * `TestPhase10GroupNilCallbackEmitsEmptyObject` - PASS
@@ -111,15 +112,15 @@ Se aprobaron las 26 pruebas de la suite de Group y Namespace:
 * `TestPhase10NamespaceLegacyMapPathStillWorks`
 
 ### Race Detector (`go test -race ./...`)
-La ejecución bajo race detector no reportó data races bajo la suite ejecutada.
+Execution under the race detector reported no data races under the executed suite.
 ```text
 ok  	github.com/humanjuan/acacia/v2/test	40.961s
 ```
 
 ---
 
-## 5. Validación bajo Fuzzing
-El fuzz target `FuzzPhase10NamespaceEscapingAndRedaction` se ejecutó durante 60 segundos con 12 workers de forma exitosa, logrando completar las iteraciones sin pánicos imprevistos y sirviendo como evidencia diagnóstica para verificar el comportamiento ante inyecciones de control (CR/LF):
+## 5. Fuzzing Validation
+The fuzz target `FuzzPhase10NamespaceEscapingAndRedaction` was successfully executed for 60 seconds with 12 workers, completing iterations without unexpected panics and serving as diagnostic evidence to verify behavior against control character injections (CR/LF):
 ```text
 PASS
 ok  	github.com/humanjuan/acacia/v2/test	62.554s
@@ -127,11 +128,11 @@ ok  	github.com/humanjuan/acacia/v2/test	62.554s
 
 ---
 
-## 6. Benchmarks Diagnósticos Resumidos
-Recopilados con 10 repeticiones en el disco de desarrollo externo:
+## 6. Summary of Diagnostic Benchmarks
+Collected with 10 repetitions on the external development disk:
 
-### Rangos de Rendimiento Observados
-| Benchmark | Latencia (ns/op) | Memoria (B/op) | Alocaciones (allocs/op) |
+### Observed Performance Ranges
+| Benchmark | Latency (ns/op) | Memory (B/op) | Allocations (allocs/op) |
 | :--- | :---: | :---: | :---: |
 | `BenchmarkPhase10GroupEventSmall` | ~730 - 1330 ns/op | ~42 - 61 B/op | 2 allocs/op |
 | `BenchmarkPhase10GroupObjectNested` | ~680 - 980 ns/op | ~57 - 88 B/op | 3 allocs/op |
@@ -142,17 +143,17 @@ Recopilados con 10 repeticiones en el disco de desarrollo externo:
 | `BenchmarkPhase10NamespaceRedactedField` | ~600 - 1300 ns/op | ~77 - 116 B/op | 2 allocs/op |
 | `BenchmarkPhase10NamespaceFloat64` | ~1010 - 1370 ns/op | ~74 - 96 B/op | 2 allocs/op |
 
-*Las alocaciones observadas probablemente están asociadas a closures/callbacks y escape analysis; la causa debe confirmarse con análisis específico si se decide optimizar este punto.*
+*The observed allocations are likely associated with closures/callbacks and escape analysis; the cause should be confirmed with specific analysis if optimization is pursued.*
 
 ---
 
-## 7. Regresión Diagnóstica Flat/Object/Array
-Se ejecutaron pruebas de regresión funcionales y de rendimiento para comprobar el comportamiento del resto de builders estructurados:
-* Todas las pruebas unitarias e integrales para Flat JSON, Object Builder y Array Builder pasaron de manera correcta.
-* Se ejecutó regresión diagnóstica de Flat/Object/Array. Las suites funcionales pasaron; los benchmarks en disco externo se mantienen como evidencia diagnóstica y no se usan como conclusión final de rendimiento.
+## 7. Diagnostic Regression for Flat/Object/Array
+Functional and performance regression tests were run to check the behavior of the remaining structured builders:
+* All unit and integration tests for Flat JSON, the Object Builder, and the Array Builder passed successfully.
+* Diagnostic regression for Flat/Object/Array was executed. The functional suites passed; the benchmarks on the external disk are maintained as diagnostic evidence and are not used as a final performance conclusion.
 
 ---
 
-## 8. Riesgos y Decisiones
-* **No SSD Hard Validation**: Los datos de benchmark provienen del ambiente diagnóstico de desarrollo en disco externo. La validación rigurosa final de release se realizará sobre SSD interno.
-* **Exclusiones Mandatorias**: Quedan excluidos del alcance: `RawJSON` en arrays/namespaces, `Any` dinámico y configuraciones de `OpenTelemetry`.
+## 8. Risks and Decisions
+* **No SSD Hard Validation**: Benchmark data comes from the diagnostic development environment on an external disk. Rigorous final release validation will be performed on an internal SSD.
+* **Mandatory Exclusions**: Excluded from the scope: `RawJSON` in arrays/namespaces, dynamic `Any`, and `OpenTelemetry` configurations.

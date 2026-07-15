@@ -1,21 +1,23 @@
 # Phase 06 — Filesystem, Permissions and Secure Rotation Report
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 Date: 2026-07-08
 Branch: `dev`
 Commit: `899e768`
 Go version: `go1.23.2`
 OS/Arch: `darwin/amd64`
-Scope: Fortalecimiento del subsistema de archivos de Acacia para mitigar path traversal, symlinks attacks, permisos inseguros y condiciones de carrera bajo rotación.
+Scope: Strengthening of Acacia's filesystem subsystem to mitigate path traversal, symlink attacks, insecure permissions, and race conditions under rotation.
 
 ---
 
 ## Objective
-El objetivo de la Fase 06 es endurecer el subsistema de sistema de archivos y rotación de Acacia frente a riesgos de Path Traversal, manipulación de enlaces simbólicos (Symlinks) y asignación insegura de permisos, manteniendo la compatibilidad de API pública v2.x y sin degradar el rendimiento del logger asíncrono.
+The objective of Phase 06 is to harden Acacia's filesystem and rotation subsystem against path traversal risks, symlink manipulation, and insecure permission assignment, while maintaining public API v2.x compatibility and without degrading asynchronous logger performance.
 
 ---
 
 ## Documents Reviewed
-Se revisaron los siguientes documentos y roadmaps:
+The following documents and roadmaps were reviewed:
 * **docs/ACACIA_PROJECT_CONTEXT.md**
 * **docs/ACACIA_IMPROVEMENT_ROADMAP.md**
 * **docs/TESTING_AND_BENCHMARKING.md**
@@ -29,84 +31,84 @@ Se revisaron los siguientes documentos y roadmaps:
 ---
 
 ## Scope Decision
-* **Dentro de Alcance:**
-  * Validación defensiva del nombre de archivo.
-  * Validación segura del directorio base de logs.
-  * Impedancia de rutas absolutas y relativas maliciosas en el nombre de log.
-  * Recombinación segura de rutas sin escapes de directorio.
-  * Prevención contra ataques por sobrescritura de enlaces simbólicos (Symlinks) mediante `os.Lstat`.
-  * Cambio de permisos por defecto a máscaras seguras (`0600` para archivos y `0700` para directorios).
-  * Inclusión de opciones configurables `WithFileMode` y `WithDirMode` que omiten bits inseguros de escritura grupal o pública.
-  * Incremento y exposición de contadores de error de rotación y escritura.
-* **Fuera de Alcance:**
-  * Reescritura del logger asíncrono.
-  * Cambios breaking en las firmas públicas de `Start`, `Rotation`, `DailyRotation`.
-  * Configuración de enlaces simbólicos permitidos.
+* **In Scope:**
+  * Defensive validation of the log filename.
+  * Secure validation of the log base directory.
+  * Prevention of malicious absolute and relative paths in the log name.
+  * Secure path recombination without directory escapes.
+  * Prevention against symlink overwrite attacks using `os.Lstat`.
+  * Changing default permissions to secure masks (`0600` for files and `0700` for directories).
+  * Inclusion of configurable options `WithFileMode` and `WithDirMode` that omit insecure group or world-writable bits.
+  * Incrementing and exposing rotation and write error counters.
+* **Out of Scope:**
+  * Rewriting the asynchronous logger.
+  * Breaking changes to the public signatures of `Start`, `Rotation`, `DailyRotation`.
+  * Configuration of allowed symlinks.
 
 ---
 
 ## Filesystem Security Design
-El subsistema de archivos ha sido rediseñado con las siguientes capas de seguridad:
-1. **Filename Validation:** Validación del parámetro `logName` mediante `ValidateLogFilename(name)`. Se rechazan nombres vacíos, separadores, NUL bytes o secuencias `..`.
-2. **Directory Validation:** Validación de `logPath` mediante `ValidateLogDirectory(dir)`. Se resuelve la ruta absoluta limpia, se verifica que sea un directorio real y se rechaza si es un symlink.
-3. **Safe Path Join:** Se compone la ruta final combinando el directorio limpio absoluto validado con el nombre limpio validado, garantizando que el archivo final resida estrictamente dentro de la raíz segura.
-4. **Symlink Policy:** Se inspeccionan las rutas del archivo activo y de todos los backups con `os.Lstat` antes de operaciones de renombrado u escritura, impidiendo el seguimiento de symlinks.
-5. **Permissions Policy:** Los permisos de creación se configuran por defecto a lectura/escritura exclusiva del propietario.
-6. **Rotation Safety:** Las operaciones de rotación por tamaño y diario validan el origen y destino en búsqueda de symlinks, y manejan errores incrementando `RotationErrorsTotal` de forma thread-safe.
+The filesystem subsystem has been redesigned with the following security layers:
+1. **Filename Validation:** Validation of the `logName` parameter using `ValidateLogFilename(name)`. Empty names, separators, NUL bytes, or `..` sequences are rejected.
+2. **Directory Validation:** Validation of `logPath` using `ValidateLogDirectory(dir)`. Resolves the clean absolute path, verifies it is a real directory, and rejects it if it is a symlink.
+3. **Safe Path Join:** The final path is composed by combining the validated clean absolute directory with the validated clean name, guaranteeing that the final file resides strictly within the secure root.
+4. **Symlink Policy:** Active file and backup paths are inspected with `os.Lstat` prior to renaming or writing operations, preventing symlink tracking.
+5. **Permissions Policy:** Creation permissions are configured by default for owner-exclusive read/write.
+6. **Rotation Safety:** Size-based and daily rotation operations validate the source and destination for symlinks, and handle errors by incrementing `RotationErrorsTotal` in a thread-safe manner.
 
 ---
 
 ## Filename Validation Policy
-* **Ejemplos Aceptados:**
+* **Accepted Examples:**
   * `"app.log"`
   * `"audit.jsonl"`
   * `"service-2026.log"`
-* **Ejemplos Rechazados (retorna `ErrInvalidLogFilename`):**
-  * `""` (vacío)
-  * `"."` o `".."`
+* **Rejected Examples (returns `ErrInvalidLogFilename`):**
+  * `""` (empty)
+  * `"."` or `".."`
   * `"../evil.log"` (path traversal)
-  * `"/tmp/evil.log"` (ruta absoluta)
-  * `"subdir/app.log"` (separadores de directorio)
-  * `"app.log\x00evil"` (byte NUL)
+  * `"/tmp/evil.log"` (absolute path)
+  * `"subdir/app.log"` (directory separators)
+  * `"app.log\x00evil"` (NUL byte)
 
 ---
 
 ## Directory and Symlink Policy
-* El directorio base debe ser una ruta pre-existente.
-* Si el directorio base proporcionado en `Start` apunta a un enlace simbólico, la inicialización se cancela retornando `ErrUnsafeSymlink`.
-* En entornos multiplataforma de pruebas, se utiliza la resolución defensiva de `os.Lstat` para asegurar la detección oportuna de enlaces simbólicos.
+* The base directory must be a pre-existing path.
+* If the base directory provided in `Start` points to a symlink, initialization is canceled, returning `ErrUnsafeSymlink`.
+* In cross-platform test environments, the defensive resolution of `os.Lstat` is used to ensure timely detection of symlinks.
 
 ---
 
 ## Permissions Policy
-* **Máscaras por Defecto:**
-  * Archivos creados por Acacia: `0600` (lectura/escritura exclusiva del propietario).
-  * Directorios base validados: Se crean y validan con la máscara segura `0700` si es aplicable.
-* **Opciones de Configuración:**
-  * `WithFileMode(mode os.FileMode)`: Permite personalizar los permisos del archivo activo y de los backups. Remueve preventivamente bits world-writable (`0002`) y group-writable (`0020`).
-  * `WithDirMode(mode os.FileMode)`: Permite personalizar los permisos de directorios. Remueve bits world-writable (`0002`) y group-writable (`0020`).
+* **Default Masks:**
+  * Files created by Acacia: `0600` (owner-exclusive read/write).
+  * Validated base directories: Created and validated with the secure mask `0700` if applicable.
+* **Configuration Options:**
+  * `WithFileMode(mode os.FileMode)`: Customize permissions for the active file and backups. Preventively removes world-writable (`0002`) and group-writable (`0020`) bits.
+  * `WithDirMode(mode os.FileMode)`: Customize directory permissions. Removes world-writable (`0002`) and group-writable (`0020`) bits.
 
 ---
 
 ## Rotation Safety
-* Durante rotaciones diarias y por tamaño, Acacia itera en orden descendente renombrando backups.
-* Antes de ejecutar `os.Rename(src, dst)`, se comprueba `IsSymlink(src)` e `IsSymlink(dst)`.
-* Si se detecta un symlink, la operación para ese slot se omite de forma segura y se suma un error a `RotationErrorsTotal`.
-* Si el archivo activo (`base`) o la primera ranura (`datedBase` o `.0`) es un symlink, la rotación falla con `ErrUnsafeSymlink`.
-* Al crear el nuevo archivo de log activo, se realiza con la máscara configurada `_log.fileMode` para mantener consistencia de permisos.
+* During daily and size-based rotations, Acacia iterates in descending order renaming backups.
+* Before executing `os.Rename(src, dst)`, `IsSymlink(src)` and `IsSymlink(dst)` are checked.
+* If a symlink is detected, the operation for that slot is safely skipped, and an error is added to `RotationErrorsTotal`.
+* If the active file (`base`) or the first slot (`datedBase` or `.0`) is a symlink, rotation fails with `ErrUnsafeSymlink`.
+* The new active log file is created using the configured `_log.fileMode` to maintain permission consistency.
 
 ---
 
 ## Public API Impact
-* Se añadieron las opciones:
+* Added options:
   * `WithFileMode(mode os.FileMode) Option`
   * `WithDirMode(mode os.FileMode) Option`
-* Se exportan los errores:
+* Exported errors:
   * `ErrInvalidLogFilename`
   * `ErrInvalidLogDirectory`
   * `ErrUnsafeSymlink`
   * `ErrInsecureFileMode`
-* Se exportan las funciones de validación auxiliares:
+* Exported helper validation functions:
   * `ValidateLogFilename(name string) error`
   * `ValidateLogDirectory(dir string) (string, error)`
   * `IsSymlink(path string) bool`
@@ -126,13 +128,13 @@ El subsistema de archivos ha sido rediseñado con las siguientes capas de seguri
 
 | Command | Result | Notes |
 |---|---:|---|
-| `go test ./...` | **PASS** | Ejecución de suite unitaria completa |
-| `go test -race ./...` | **PASS** | Validación del detector de carreras en todo el repo |
-| `go test ./test -run FuzzValidateLogFilenameNoTraversal -fuzz=FuzzValidateLogFilenameNoTraversal -fuzztime=20s` | **PASS** | Fuzzing de evasión de rutas |
-| `go test ./test -run FuzzValidateLogFilenameNoNUL -fuzz=FuzzValidateLogFilenameNoNUL -fuzztime=20s` | **PASS** | Fuzzing de detección de NUL bytes |
-| `go test ./test -run FuzzValidateLogFilenameAcceptsSafeNames -fuzz=FuzzValidateLogFilenameAcceptsSafeNames -fuzztime=20s` | **PASS** | Fuzzing de estabilidad de nombres seguros |
-| `GOMAXPROCS=1 go test ./test -run TestStressRotation -count=1` | **PASS** | Estrés de rotación concurrente (GMP=1) |
-| `go test -race ./test -run TestStressRotation -count=1` | **PASS** | Detector de carreras en estrés de rotación |
+| `go test ./...` | **PASS** | Execution of the complete unit suite |
+| `go test -race ./...` | **PASS** | Validation of the race detector across the entire repository |
+| `go test ./test -run FuzzValidateLogFilenameNoTraversal -fuzz=FuzzValidateLogFilenameNoTraversal -fuzztime=20s` | **PASS** | Path evasion fuzzing |
+| `go test ./test -run FuzzValidateLogFilenameNoNUL -fuzz=FuzzValidateLogFilenameNoNUL -fuzztime=20s` | **PASS** | NUL byte detection fuzzing |
+| `go test ./test -run FuzzValidateLogFilenameAcceptsSafeNames -fuzz=FuzzValidateLogFilenameAcceptsSafeNames -fuzztime=20s` | **PASS** | Safe name stability fuzzing |
+| `GOMAXPROCS=1 go test ./test -run TestStressRotation -count=1` | **PASS** | Concurrent rotation stress (GMP=1) |
+| `go test -race ./test -run TestStressRotation -count=1` | **PASS** | Race detector on rotation stress |
 
 ---
 
@@ -140,13 +142,13 @@ El subsistema de archivos ha sido rediseñado con las siguientes capas de seguri
 
 | Test | Result | Notes |
 |---|---:|---|
-| `TestFilenameValidation` | **PASS** | Bloquea traversal y caracteres inválidos; acepta nombres limpios |
-| `TestDirectoryValidation` | **PASS** | Valida existencia de carpetas y rechaza bases symlinks/ficheros |
-| `TestPermissionsSecurity` | **PASS** | Comprueba el saneado de permisos world-writable y por defecto 0600 |
-| `TestSymlinkActiveFile` | **PASS** | Impide inicializar Acacia si el destino es un enlace simbólico |
-| `TestSymlinkBackupRotation` | **PASS** | Aborta la rotación de backups si se encuentra con un symlink |
-| `TestSizeRotationNormal` | **PASS** | Verifica que las rotaciones respeten los límites de backups |
-| `TestNoRegressionSyncClose` | **PASS** | Sin regresiones en control de cierre y sincronización |
+| `TestFilenameValidation` | **PASS** | Blocks traversal and invalid characters; accepts clean names |
+| `TestDirectoryValidation` | **PASS** | Validates folder existence and rejects symlink/file bases |
+| `TestPermissionsSecurity` | **PASS** | Verifies cleaning of world-writable permissions and default 0600 |
+| `TestSymlinkActiveFile` | **PASS** | Prevents Acacia initialization if destination is a symlink |
+| `TestSymlinkBackupRotation` | **PASS** | Aborts backup rotation if a symlink is encountered |
+| `TestSizeRotationNormal` | **PASS** | Verifies that rotations respect backup limits |
+| `TestNoRegressionSyncClose` | **PASS** | No regressions in closing and synchronization control |
 
 ---
 
@@ -154,9 +156,9 @@ El subsistema de archivos ha sido rediseñado con las siguientes capas de seguri
 
 | Target | Result | Notes |
 |---|---:|---|
-| `FuzzValidateLogFilenameNoTraversal` | **PASS** | Millones de ejecuciones sin evasión de traversal |
-| `FuzzValidateLogFilenameNoNUL` | **PASS** | Bloqueo absoluto de inyecciones de bytes NUL |
-| `FuzzValidateLogFilenameAcceptsSafeNames` | **PASS** | Estabilidad bajo caracteres alfanuméricos |
+| `FuzzValidateLogFilenameNoTraversal` | **PASS** | Millions of runs without traversal evasion |
+| `FuzzValidateLogFilenameNoNUL` | **PASS** | Absolute blocking of NUL byte injections |
+| `FuzzValidateLogFilenameAcceptsSafeNames` | **PASS** | Stability under alphanumeric characters |
 
 ---
 
@@ -164,7 +166,7 @@ El subsistema de archivos ha sido rediseñado con las siguientes capas de seguri
 
 | Test | Result | Notes |
 |---|---:|---|
-| `TestStressRotationConcurrentWriters` | **PASS** | 30 hilos escribiendo logs de 5KB y rotando intensamente |
+| `TestStressRotationConcurrentWriters` | **PASS** | 30 threads writing 5KB logs and rotating intensively |
 
 ---
 
@@ -173,32 +175,32 @@ El subsistema de archivos ha sido rediseñado con las siguientes capas de seguri
 ### GOMAXPROCS=1
 | Benchmark | ns/op | B/op | allocs/op | Notes |
 |---|---:|---:|---:|---|
-| `BenchmarkValidateLogFilenameSafe` | 90.7 ns | 0 B | 0 | Rápida y 0 allocations |
-| `BenchmarkValidateLogFilenameTraversal` | 20.1 ns | 0 B | 0 | Cortocircuito instantáneo traversal |
-| `BenchmarkSafeJoinLogPath` | 104.4 ns | 16 B | 1 | Unificación segura de ruta |
-| `BenchmarkRotationCheckNoRotate` | 4.3 µs | 466 B | 0 | Operación asíncrona normal |
-| `BenchmarkRotationSizeSmall` | 2.59 ms | 10.1 KB | 47 | Operación I/O física completa |
+| `BenchmarkValidateLogFilenameSafe` | 90.7 ns | 0 B | 0 | Fast and 0 allocations |
+| `BenchmarkValidateLogFilenameTraversal` | 20.1 ns | 0 B | 0 | Instant short-circuit traversal |
+| `BenchmarkSafeJoinLogPath` | 104.4 ns | 16 B | 1 | Secure path unification |
+| `BenchmarkRotationCheckNoRotate` | 4.3 µs | 466 B | 0 | Normal asynchronous operation |
+| `BenchmarkRotationSizeSmall` | 2.59 ms | 10.1 KB | 47 | Full physical I/O operation |
 
 ### GOMAXPROCS=2
 | Benchmark | ns/op | B/op | allocs/op | Notes |
 |---|---:|---:|---:|---|
-| `BenchmarkValidateLogFilenameSafe` | 71.0 ns | 0 B | 0 | Rendimiento óptimo en multiproceso |
-| `BenchmarkValidateLogFilenameTraversal` | 18.8 ns | 0 B | 0 | Cortocircuito instantáneo traversal |
-| `BenchmarkSafeJoinLogPath` | 88.4 ns | 16 B | 1 | Unificación segura de ruta |
-| `BenchmarkRotationCheckNoRotate` | 4.4 µs | 501 B | 0 | Operación asíncrona normal |
-| `BenchmarkRotationSizeSmall` | 2.18 ms | 9.6 KB | 47 | Operación I/O física completa |
+| `BenchmarkValidateLogFilenameSafe` | 71.0 ns | 0 B | 0 | Optimal performance in multiprocessing |
+| `BenchmarkValidateLogFilenameTraversal` | 18.8 ns | 0 B | 0 | Instant short-circuit traversal |
+| `BenchmarkSafeJoinLogPath` | 88.4 ns | 16 B | 1 | Secure path unification |
+| `BenchmarkRotationCheckNoRotate` | 4.4 µs | 501 B | 0 | Normal asynchronous operation |
+| `BenchmarkRotationSizeSmall` | 2.18 ms | 9.6 KB | 47 | Full physical I/O operation |
 
 ---
 
 ## pprof Summary
-No se generó perfilado pprof dado que el rendimiento de validaciones demostró ser ultra veloz y con zero allocations adicionales sobre el hot path principal de escritura de logs.
+No pprof profiling was generated since validation performance proved to be ultra-fast and with zero additional allocations on the main log writing hot path.
 
 ---
 
 ## Security Findings
-* **SEC-06-001 (Path Traversal en Start):** Remediado.
-* **SEC-06-002 (Symlink Overwrite en Rotación):** Remediado.
-* **SEC-06-003 (Permisos Inseguros en Filesystem):** Remediado.
+* **SEC-06-001 (Path Traversal in Start):** Remediated.
+* **SEC-06-002 (Symlink Overwrite in Rotation):** Remediated.
+* **SEC-06-003 (Insecure Permissions in Filesystem):** Remediated.
 
 ---
 
@@ -206,17 +208,17 @@ No se generó perfilado pprof dado que el rendimiento de validaciones demostró 
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| Validación de nombres de archivo | **Completo** | `TestFilenameValidation`, `FuzzValidateLogFilenameNoTraversal` |
-| Validación segura de directorio base | **Completo** | `TestDirectoryValidation` |
-| Rechazo de Path Traversal | **Completo** | `TestFilenameValidation` |
-| Control y rechazo de Symlinks | **Completo** | `TestSymlinkActiveFile`, `TestSymlinkBackupRotation` |
-| Permisos seguros por defecto (`0600`/`0700`) | **Completo** | `TestPermissionsSecurity` |
-| Rotación atómica y race-free | **Completo** | `TestStressRotationConcurrentWriters` |
+| Filename validation | **Complete** | `TestFilenameValidation`, `FuzzValidateLogFilenameNoTraversal` |
+| Secure base directory validation | **Complete** | `TestDirectoryValidation` |
+| Path Traversal rejection | **Complete** | `TestFilenameValidation` |
+| Symlink control and rejection | **Complete** | `TestSymlinkActiveFile`, `TestSymlinkBackupRotation` |
+| Secure default permissions (`0600`/`0700`) | **Complete** | `TestPermissionsSecurity` |
+| Atomic and race-free rotation | **Complete** | `TestStressRotationConcurrentWriters` |
 
 ---
 
 ## Risks / Regressions
-* **Sistemas de Archivo Windows:** La función `IsSymlink` utiliza `os.Lstat`. En Windows, el soporte de symlinks requiere privilegios elevados del sistema operativo, por lo que el logger operará en modo degradado o fallará adecuadamente si no puede realizar la comprobación.
+* **Windows Filesystems:** The `IsSymlink` function uses `os.Lstat`. On Windows, symlink support requires elevated operating system privileges, so the logger will operate in degraded mode or fail appropriately if it cannot perform the check.
 
 ---
 
@@ -233,5 +235,5 @@ No se generó perfilado pprof dado que el rendimiento de validaciones demostró 
 ---
 
 ## Next Phase Recommendation
-Se recomienda declarar la Fase 06 como **finalizada** y avanzar hacia:
-* **Fase 07 — Semántica formal de Sync y Close**
+It is recommended to declare Phase 06 **completed** and move forward to:
+* **Phase 07 — Formal Sync and Close Semantics**

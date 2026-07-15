@@ -48,8 +48,8 @@ lg.InfoEvent().
     Msg("host metrics gathered")
 ```
 
-### Arreglos (Arrays)
-Arreglos can contain primitive values or structured object elements:
+### Arrays
+Arrays can contain primitive values or structured object elements:
 ```go
 lg.InfoEvent().
     Array("tags", func(a *acacia.Array) {

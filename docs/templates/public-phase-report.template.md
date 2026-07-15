@@ -1,4 +1,4 @@
-# Phase XX — Public Report
+# Engineering Milestone — Public Report
 
 Date:
 Branch:
@@ -41,4 +41,4 @@ Scope:
 
 Do not include private content here. Reference only local paths under `.private/`.
 
-## Next Phase
+## Next Milestone

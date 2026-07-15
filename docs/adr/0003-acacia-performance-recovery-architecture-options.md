@@ -7,14 +7,14 @@
 ---
 
 ## Context
-Following the completion of Fase 08, a hard performance validation was executed on a temporary SSD clone of the repository. While the release candidate was proven to be functionally stable, thread-safe, and secure, performance profiling revealed regressions compared to the pre-roadmap baseline `v2.3.0`. 
+Following the completion of Phase 08, a hard performance validation was executed on a temporary SSD clone of the repository. While the release candidate was proven to be functionally stable, thread-safe, and secure, performance profiling revealed regressions compared to the pre-roadmap baseline `v2.3.0`. 
 
 Specifically:
 - Raw string and raw byte paths degraded by +21% to +23% in latency.
 - Messages containing 1KB payloads degraded significantly, with bytes/op increasing up to +92% and higher B/op.
 - State checks, queue coordination, and buffer growth under write pressure are suspected to be the primary causes of this overhead.
 
-This ADR outlines the architectural alternatives proposed to recover the performance baseline while strictly maintaining the security fixes, backpressure correctness, and Sync/Close behaviors established in Fases 01–08.
+This ADR outlines the architectural alternatives proposed to recover the performance baseline while strictly maintaining the security fixes, backpressure correctness, and Sync/Close behaviors established in Phases 01–08.
 
 ---
 

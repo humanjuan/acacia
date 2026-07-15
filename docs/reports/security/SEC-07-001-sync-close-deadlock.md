@@ -1,5 +1,7 @@
 # Security Finding
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 ## Finding ID: SEC-07-001
 
 ### Metadata
@@ -9,13 +11,13 @@
 - **Status:** Remediated
 
 ### Vulnerability Description
-El logger Acacia en su versión previa permitía bloquear indefinidamente a hilos productores de logs bajo la política `BlockOnFull` si el logger era cerrado mediante `Close()`. Esto ocurría porque los productores quedaban atrapados intentando enviar al canal `_log.events` sin selectores alternativos, y el canal nunca era drenado o desbloqueado de forma asíncrona, provocando un bloqueo completo en hilos críticos de la aplicación.
+In its previous version, the Acacia logger allowed producer log threads to block indefinitely under the `BlockOnFull` policy if the logger was closed via `Close()`. This occurred because producers were left trapped trying to send to the `_log.events` channel without alternative selectors, and the channel was never drained or unblocked asynchronously, causing a complete hang in critical application threads.
 
 ### Impact
-Denegación de servicio (DoS) del proceso de producción o del servicio completo de la aplicación, ya que los hilos de ejecución que emiten logs bajo congestión quedan colgados de forma indefinida, agotando pools de hilos u otras conexiones del servidor.
+Denial of Service (DoS) of the production process or the entire application service, as execution threads emitting logs under congestion hang indefinitely, exhausting thread pools or other server connections.
 
 ### Code Snippet Reference
-Antes de la corrección:
+Before the fix:
 ```go
 case BlockOnFull:
     _log.events <- ev
@@ -23,10 +25,10 @@ case BlockOnFull:
 ```
 
 ### Proof of Concept (PoC)
-1. Iniciar logger con buffer de tamaño 5 y política `BlockOnFull`.
-2. Lanzar 10 goroutines escribiendo logs concurrentemente para llenar el buffer.
-3. Llamar a `lg.Close()` desde la goroutine principal.
-4. Las goroutines productoras bloqueadas en el canal se quedan colgadas de forma permanente, impidiendo el apagado correcto y colgando la aplicación.
+1. Start the logger with a buffer size of 5 and the `BlockOnFull` policy.
+2. Launch 10 goroutines writing logs concurrently to fill the buffer.
+3. Call `lg.Close()` from the main goroutine.
+4. The producer goroutines blocked on the channel hang permanently, preventing a clean shutdown and hanging the application.
 
 ### Remediation Plan
-Se rediseñó la función de encolado `enqueueEvent` utilizando sentencias `select` junto con `case <-_log.done:`. Al cerrar el canal `_log.done` al inicio de `Close()`, todas las goroutines de envío bloqueadas se liberan instantáneamente de forma segura, descartando los mensajes pendientes hacia la cola y finalizando sin deadlocks.
+The queueing function `enqueueEvent` was redesigned using `select` statements along with `case <-_log.done:`. By closing the `_log.done` channel at the beginning of `Close()`, all blocked sending goroutines are instantly released in a safe manner, discarding pending messages to the queue and terminating without deadlocks.

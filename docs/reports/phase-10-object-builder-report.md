@@ -1,45 +1,46 @@
 # Phase 10 — Object Builder Report
+*This is a historical engineering report. The filename is kept for audit continuity.*
 
-## 1. Objetivo y Alcance
-El objetivo principal del Sprint 10.2 es incorporar soporte tipado para objetos JSON anizados mediante callbacks en Acacia Logger, manteniendo la identidad de alto rendimiento, libre de reflexión en los caminos recomendados y preservando la compatibilidad con v2.x.
-Este sprint incluye:
-* API basada en callback sin reflexión: `lg.InfoEvent().Object("key", func(o *acacia.Object) { ... })`.
-* Manejo seguro de callbacks `nil` emitiendo un objeto vacío (`{}`).
-* Rollback del búfer parcial ante pánicos en el callback, evitando salidas JSON corruptas y emitiendo un campo descriptivo constante `"_acacia_error": "object callback panic"`.
-* Redacción recursiva case-insensitive de campos sensibles en cualquier nivel de anidación.
-* Escapado completo de caracteres en claves y valores anizados.
-* Tratamiento de `float64` no finitos (`NaN`, `+Inf`, `-Inf`) como strings JSON válidos dentro de objetos.
-* Manejo correcto de `Err(nil)` (campo omitido) y `ErrKey`.
-* Pruebas unitarias completas, fuzzing y benchmarks diagnósticos.
-
----
-
-## 2. Archivos Modificados y Creados
-* **Modificado**:
-  * [acacia.go](../../acacia.go): Implementación de la estructura `Object` y sus métodos tipados, y adición del método `Object` en la estructura `Event`.
-  * [docs/reports/README.md](README.md): Indexación del nuevo reporte de sprint.
-  * [docs/ACACIA_PROJECT_CONTEXT.md](../ACACIA_PROJECT_CONTEXT.md): Actualización de Next Action y recommended commit message.
-  * [docs/adr/0004-structured-json-maturity.md](../adr/0004-structured-json-maturity.md): Inclusión de la sección Decision Update para el Object Builder.
-* **Creado**:
-  * [test/phase10_object_builder_test.go](../../test/phase10_object_builder_test.go): Suite de pruebas unitarias verificando la correctitud de anidación, panics, nil-callbacks, escaping y redacción recursiva.
-  * [test/phase10_object_builder_fuzz_test.go](../../test/phase10_object_builder_fuzz_test.go): Fuzz target para validar la integridad sintáctica de JSON ante inputs aleatorios y permutados.
-  * [test/phase10_object_builder_benchmark_test.go](../../test/phase10_object_builder_benchmark_test.go): Suite de benchmarks diagnósticos.
+## 1. Objective and Scope
+The primary objective of Sprint 10.2 is to incorporate typed support for nested JSON objects using callbacks in Acacia Logger, maintaining the high-performance, reflection-free identity in the recommended paths, and preserving compatibility with v2.x.
+This sprint includes:
+* Reflection-free callback-based API: `lg.InfoEvent().Object("key", func(o *acacia.Object) { ... })`.
+* Safe handling of `nil` callbacks emitting an empty object (`{}`).
+* Rollback of partial buffer on callback panics, preventing corrupt JSON outputs and emitting a constant descriptive field `"_acacia_error": "object callback panic"`.
+* Case-insensitive recursive redaction of sensitive fields at any nesting level.
+* Complete character escaping in nested keys and values.
+* Treatment of non-finite `float64` values (`NaN`, `+Inf`, `-Inf`) as valid JSON strings inside objects.
+* Correct handling of `Err(nil)` (omitted field) and `ErrKey`.
+* Complete unit testing, fuzzing, and diagnostic benchmarks.
 
 ---
 
-## 3. Detalles de Implementación y Compatibilidad v2.x
-* **Diseño Scoped**: La estructura `Object` actúa directamente sobre el búfer del evento mediante un puntero a slice (`*[]byte`). Esto evita alocaciones adicionales de búferes intermedios durante la serialización del objeto.
-* **Rollback ante Panic**: Antes de ejecutar la función del callback, se registra el offset de escritura en el búfer. Si la ejecución del callback paniquea, el búfer se trunca (rollback) a ese offset y se añade a nivel del padre el campo seguro constante `"_acacia_error": "object callback panic"`, asegurando que el JSON de salida no quede truncado o corrupto.
-* **Redacción Recursiva**: En todos los métodos de `Object` se aplica `isSensitiveKey` antes de serializar, asegurando que las claves sensibles se redacten de forma recursiva a cualquier profundidad.
-* **Float64 Seguro**: Se hereda la semántica implementada en el sprint anterior, serializando floats normales como números JSON literales, y no finitos como strings seguros.
-* **Compatibilidad**: Se conservan todas las firmas públicas de v2.x. El path legacy basado en mapas dinámicos sigue funcionando exactamente como antes.
+## 2. Modified and Created Files
+* **Modified**:
+  * [acacia.go](../../acacia.go): Implementation of the `Object` structure and its typed methods, and addition of the `Object` method in the `Event` structure.
+  * [docs/reports/README.md](README.md): Indexing of the new sprint report.
+  * [docs/ACACIA_PROJECT_CONTEXT.md](../ACACIA_PROJECT_CONTEXT.md): Update of Next Action and recommended commit message.
+  * [docs/adr/0004-structured-json-maturity.md](../adr/0004-structured-json-maturity.md): Inclusion of the Decision Update section for the Object Builder.
+* **Created**:
+  * [test/phase10_object_builder_test.go](../../test/phase10_object_builder_test.go): Unit test suite verifying nesting correctness, panics, nil-callbacks, escaping, and recursive redaction.
+  * [test/phase10_object_builder_fuzz_test.go](../../test/phase10_object_builder_fuzz_test.go): Fuzz target to validate JSON syntactic integrity under random and permuted inputs.
+  * [test/phase10_object_builder_benchmark_test.go](../../test/phase10_object_builder_benchmark_test.go): Diagnostic benchmark suite.
 
 ---
 
-## 4. Evidencia de Pruebas de Correctitud y Concurrencia
-Se ejecutó la suite de pruebas unitarias completa con los nuevos tests incluidos:
+## 3. Implementation Details and v2.x Compatibility
+* **Scoped Design**: The `Object` structure operates directly on the event buffer using a slice pointer (`*[]byte`). This avoids additional allocations of intermediate buffers during object serialization.
+* **Rollback on Panic**: Before executing the callback function, the write offset in the buffer is recorded. If the callback execution panics, the buffer is truncated (rolled back) to that offset, and the safe constant field `"_acacia_error": "object callback panic"` is appended at the parent's level, ensuring the output JSON is not left truncated or corrupt.
+* **Recursive Redaction**: In all `Object` methods, `isSensitiveKey` is applied before serializing, ensuring that sensitive keys are redacted recursively at any depth.
+* **Safe Float64**: The semantics implemented in the previous sprint are inherited, serializing normal floats as literal JSON numbers, and non-finite ones as safe strings.
+* **Compatibility**: All public signatures of v2.x are preserved. The legacy path based on dynamic maps continues to function exactly as before.
 
-### Pruebas Unitarias Generales (`go test ./...`)
+---
+
+## 4. Evidence of Correctness and Concurrency Testing
+The complete unit test suite was executed with the new tests included:
+
+### General Unit Tests (`go test ./...`)
 ```text
 ?   	github.com/humanjuan/acacia/v2	[no test files]
 ?   	github.com/humanjuan/acacia/v2/examples/basic	[no test files]
@@ -47,12 +48,12 @@ Se ejecutó la suite de pruebas unitarias completa con los nuevos tests incluido
 ok  	github.com/humanjuan/acacia/v2/test	19.618s
 ```
 
-### Pruebas Unitarias Enfocadas (`go test ./test -run 'TestPhase10ObjectBuilder'`)
-Todas las pruebas de correctitud de comportamiento de Object pasaron con éxito:
+### Focused Unit Tests (`go test ./test -run 'TestPhase10ObjectBuilder'`)
+All behavior correctness tests for Object passed successfully:
 ```text
 ok  	github.com/humanjuan/acacia/v2/test	1.479s
 ```
-Pruebas de la suite de Object ejecutadas:
+Object suite tests executed:
 * `TestPhase10ObjectBuilderNestedObjectValidJSON`
 * `TestPhase10ObjectBuilderEmptyCallbackEmitsEmptyObject`
 * `TestPhase10ObjectBuilderNilCallbackEmitsEmptyObject`
@@ -70,15 +71,15 @@ Pruebas de la suite de Object ejecutadas:
 * `TestPhase10ObjectBuilderNestedCallbackPanicAfterExistingFieldKeepsValidJSON`
 
 ### Race Detector (`go test -race ./...`)
-No se reportaron data races bajo la suite ejecutada:
+No data races were reported under the executed suite:
 ```text
 ok  	github.com/humanjuan/acacia/v2/test	55.912s
 ```
 
 ---
 
-## 5. Validación bajo Fuzzing
-El fuzz target `FuzzPhase10ObjectBuilderEscapingAndRedaction` fue ejecutado durante 60 segundos, completando más de 223,000 iteraciones sin fallos ni pánicos no recuperados:
+## 5. Fuzzing Validation
+The fuzz target `FuzzPhase10ObjectBuilderEscapingAndRedaction` was executed for 60 seconds, completing more than 223,000 iterations without failures or unrecovered panics:
 ```text
 fuzz: elapsed: 0s, gathering baseline coverage: 0/89 completed
 fuzz: elapsed: 0s, gathering baseline coverage: 89/89 completed, now fuzzing with 12 workers
@@ -88,15 +89,15 @@ fuzz: elapsed: 1m1s, execs: 223011 (0/sec), new interesting: 9 (total: 98)
 PASS
 ok  	github.com/humanjuan/acacia/v2/test	61.834s
 ```
-**Resultado**: Sin corrupciones en las salidas JSON ni saltos de línea crudos dentro de las llaves o valores serializados.
+**Result**: No corruptions in the JSON outputs and no raw newlines within the serialized keys or values.
 
 ---
 
-## 6. Benchmarks Diagnósticos Resumidos
-Los benchmarks del Object builder fueron recolectados en el disco externo de desarrollo con 10 repeticiones.
+## 6. Summary of Diagnostic Benchmarks
+The Object builder benchmarks were collected on the external development disk with 10 repetitions.
 
-### Rangos Observados (Benchmarks Diagnósticos)
-| Benchmark | Latencia (ns/op) | Memoria (B/op) | Alocaciones (allocs/op) |
+### Observed Ranges (Diagnostic Benchmarks)
+| Benchmark | Latency (ns/op) | Memory (B/op) | Allocations (allocs/op) |
 | :--- | :---: | :---: | :---: |
 | `BenchmarkPhase10ObjectBuilderSmall` | ~880 - 1360 ns/op | ~42 - 161 B/op | 2 allocs/op |
 | `BenchmarkPhase10ObjectBuilderNested` | ~1020 - 1360 ns/op | ~60 - 201 B/op | 3 allocs/op |
@@ -105,21 +106,21 @@ Los benchmarks del Object builder fueron recolectados en el disco externo de des
 | `BenchmarkPhase10ObjectBuilderRedactedField` | ~850 - 1620 ns/op | ~49 - 134 B/op | 2 allocs/op |
 | `BenchmarkPhase10ObjectBuilderFloat64` | ~1140 - 1900 ns/op | ~44 - 124 B/op | 2 allocs/op |
 
-### Análisis de Alocaciones y Rendimiento
-* **Alocaciones**: los benchmarks diagnósticos observan incremento de allocs/op por nivel de anidación; la causa probable debe confirmarse con escape analysis si se decide optimizar este punto.
-* **Escritura Append-Only**: El diseño conserva la escritura directa en el búfer final del evento, evitando la asignación y copia de búferes secundarios.
+### Performance and Allocation Analysis
+* **Allocations**: The diagnostic benchmarks observe an increase in allocs/op per nesting level; the probable cause should be confirmed with escape analysis if optimization is pursued.
+* **Append-Only Write**: The design preserves direct writing to the final event buffer, avoiding the allocation and copying of secondary buffers.
 
 ---
 
-## 7. Regresión Diagnóstica Flat JSON
-Se ejecutó regresión diagnóstica de Flat JSON. La suite funcional pasó; los benchmarks en disco externo mostraron variabilidad, por lo que no se usan como conclusión final de rendimiento.
+## 7. Diagnostic Regression for Flat JSON
+Flat JSON regression was executed. The functional suite passed; benchmarks on the external disk showed variability and are thus not used as a final performance conclusion.
 
 ---
 
-## 8. Confirmaciones del Sprint
-* **No SSD Hard Validation**: Todos los benchmarks y pruebas diagnósticas se han ejecutado en el disco externo de desarrollo. La validación de release en SSD controlado está diferida para el final de la Fase 10.
-* **No Implementado**: Se omitió explícitamente la implementación de `Array Builder`, `Group`, `Namespace`, `RawJSON`, `Any` y soporte de `OpenTelemetry` para cumplir estrictamente con los límites de este sprint.
+## 8. Sprint Confirmations
+* **No SSD Hard Validation**: All benchmarks and diagnostic tests were executed on the external development disk. Release validation on controlled SSD is deferred to the end of Phase 10.
+* **Not Implemented**: Implementation of the `Array Builder`, `Group`, `Namespace`, `RawJSON`, `Any`, and `OpenTelemetry` support was explicitly omitted to comply strictly with the boundaries of this sprint.
 
 ---
 
-*Los resultados completos en bruto se guardaron en el directorio privado para auditoría interna.*
+*The complete raw results were saved in the private directory for internal auditing.*

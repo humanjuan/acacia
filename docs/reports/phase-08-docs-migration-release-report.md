@@ -1,21 +1,23 @@
 # Phase 08 — Documentation, Migration and Release Report
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 Date: 2026-07-08
 Branch: `dev`
 Commit: `a8843fb`
 Go version: `go1.23.2`
 OS/Arch: `darwin/amd64`
-Scope: Consolidación de documentación pública honesta, guías de migración v2.x, changelog, release notes y checklist de release/tag.
+Scope: Consolidation of honest public documentation, v2.x migration guides, changelog, release notes, and release/tag checklist.
 
 ---
 
 ## Objective
-El objetivo de la Fase 08 es auditar, clarificar y estructurar la documentación técnica de Acacia para garantizar que todos los claims de performance sean reproducibles y estén acotados técnicamente, asegurando un plan de migración libre de disrupciones y documentando todas las vulnerabilidades corregidas en las fases previas (Fases 01-07).
+The objective of Phase 08 is to audit, clarify, and structure Acacia's technical documentation to guarantee that all performance claims are reproducible and technically bounded, ensuring a disruption-free migration plan and documenting all vulnerabilities fixed in previous phases (Phases 01-07).
 
 ---
 
 ## Documents Reviewed
-Se leyeron y revisaron los siguientes documentos y reportes:
+The following documents and reports were read and reviewed:
 * `README.md`
 * `CHANGELOG.md`
 * `RELEASE_NOTES.md`
@@ -28,22 +30,22 @@ Se leyeron y revisaron los siguientes documentos y reportes:
 * `docs/REPORTING_GUIDE.md`
 * `docs/PERFORMANCE_ENGINEERING_PLAN.md`
 * `docs/MIGRATION_STRATEGY.md`
-* Reportes de Fase 00 a Fase 07.
-* Hallazgos de seguridad `SEC-01`, `SEC-06`, y `SEC-07`.
+* Reports from Phase 00 to Phase 07.
+* Security findings `SEC-01`, `SEC-06`, and `SEC-07`.
 
 ---
 
 ## Scope Decision
-* **Dentro de Alcance:**
-  * Corrección de claims absolutos o ambiguos en el README principal.
-  * Inclusión de guías de uso y ejemplos para las nuevas APIs (Fluent Builder, Redaction, Backpressure, Filesystem Modes y Sync/Close).
-  * Creación y consolidación de `CHANGELOG.md` y `RELEASE_NOTES.md`.
-  * Actualización de la estrategia de migración en `docs/MIGRATION_STRATEGY.md`.
-  * Verificación final de exclusión de datos privados en Git.
-* **Fuera de Alcance:**
-  * Modificación de código funcional.
-  * Publicación de la release o creación del tag Git (delegado al maintainer).
-  * Decisión final de saltar a versión v3 (planteada para el futuro pero no resuelta).
+* **In Scope:**
+  * Correction of absolute or ambiguous claims in the main README.
+  * Inclusion of usage guides and examples for the new APIs (Fluent Builder, Redaction, Backpressure, Filesystem Modes, and Sync/Close).
+  * Creation and consolidation of `CHANGELOG.md` and `RELEASE_NOTES.md`.
+  * Update of the migration strategy in `docs/MIGRATION_STRATEGY.md`.
+  * Final verification of private data exclusion in Git.
+* **Out of Scope:**
+  * Modification of functional code.
+  * Publishing the release or creating the Git tag (delegated to the maintainer).
+  * Final decision to skip to version v3 (proposed for the future but not resolved).
 
 ---
 
@@ -51,38 +53,38 @@ Se leyeron y revisaron los siguientes documentos y reportes:
 
 | Claim | Previous wording | Decision | New wording / evidence |
 |---|---|---|---|
-| Race detector status | `100% race-free` | Ajustar | `validated with go test -race ./... under the documented test suite` |
-| Sync / Close loss prevention | `Zero log loss` | Acotar | `zero-loss barrier for events accepted before Sync() or Close()` |
-| Hot path allocations | `0 allocs/op (hot path)` | Acotar | `0 allocs/op for documented hot paths (plain string/byte writes, disabled level, post-close/drop paths)` |
-| Rotation safety | `All rotation is atomic, safe, and race-free` | Acotar | `rename-based rotation within the same directory, with symlink and path checks` |
+| Race detector status | `100% race-free` | Adjust | `validated with go test -race ./... under the documented test suite` |
+| Sync / Close loss prevention | `Zero log loss` | Bound | `zero-loss barrier for events accepted before Sync() or Close()` |
+| Hot path allocations | `0 allocs/op (hot path)` | Bound | `0 allocs/op for documented hot paths (plain string/byte writes, disabled level, post-close/drop paths)` |
+| Rotation safety | `All rotation is atomic, safe, and race-free` | Bound | `rename-based rotation within the same directory, with symlink and path checks` |
 
 ---
 
 ## Public Documentation Changes
-* Se agregó al `README.md` la documentación técnica detallada para el uso de la API estructurada basada en Builders, redacción de datos sensibles, políticas de backpressure, permisos seguros de filesystem y semántica de Sync/Close.
-* Se agregó la sección "Performance Claim Boundaries" para explicar de forma transparente dónde aplica la optimización zero-allocation.
+* Technical documentation was added to `README.md` detailing the usage of the structured Builder-based API, sensitive data redaction, backpressure policies, secure filesystem permissions, and Sync/Close semantics.
+* The "Performance Claim Boundaries" section was added to transparently explain where zero-allocation optimization applies.
 
 ---
 
 ## Migration Guide Changes
-Se reescribió `docs/MIGRATION_STRATEGY.md` para incluir políticas de compatibilidad, pasos prácticos para migrar mapas a builders, configuración de permisos y directivas ante escrituras post-cierre.
+`docs/MIGRATION_STRATEGY.md` was rewritten to include compatibility policies, practical steps to migrate maps to builders, permission configuration, and directives for post-close writes.
 
 ---
 
 ## Release Notes / Changelog Changes
-* Se creó `CHANGELOG.md` detallando las incorporaciones (`Added`), cambios (`Changed`), correcciones (`Fixed`) y mitigaciones de seguridad (`Security`) bajo el estándar de Keep a Changelog.
-* Se creó `RELEASE_NOTES.md` resumiendo las mejoras para los desarrolladores.
+* `CHANGELOG.md` was created detailing additions (`Added`), changes (`Changed`), fixes (`Fixed`), and security mitigations (`Security`) under the Keep a Changelog standard.
+* `RELEASE_NOTES.md` was created summarizing improvements for developers.
 
 ---
 
 ## Performance Claim Boundaries
-* **Zero allocations (0 allocs/op):** 0 allocs/op observado en los benchmarks documentados para escrituras de strings planos, arrays de bytes en crudo, niveles desactivados, descartes por backpressure y operaciones post-cierre.
-* **Heap allocations (>0 allocs/op):** La API estructurada clásica (`map[string]interface{}`) incurre en allocations debido a reflexión y boxing. La API fluida Builder reporta ~1 alloc/op por controles de `sync.Pool`.
+* **Zero allocations (0 allocs/op):** 0 allocs/op observed in documented benchmarks for plain string writes, raw byte arrays, disabled levels, backpressure drops, and post-close operations.
+* **Heap allocations (>0 allocs/op):** The classic structured API (`map[string]interface{}`) incurs allocations due to reflection and boxing. The fluent Builder API reports ~1 alloc/op due to `sync.Pool` checks.
 
 ---
 
 ## Security Documentation Summary
-Se documentaron y remediaron las siguientes vulnerabilidades:
+The following vulnerabilities were documented and remediated:
 * **SEC-01-001:** Hardening JSON escape sequences for control characters.
 * **SEC-06-001:** Directory traversal prevention on log filenames.
 * **SEC-06-002:** Symlink follow mitigation on active log and backups.
@@ -94,7 +96,7 @@ Se documentaron y remediaron las siguientes vulnerabilidades:
 ---
 
 ## Compatibility Summary
-Se preservan las firmas públicas v2.x conocidas; algunos inputs inseguros ahora fallan de forma intencional. No se rompe la firma de ningún método público ni opción de configuración.
+Known v2.x public signatures are preserved; some unsafe inputs now fail intentionally. The signature of any public method or configuration option is not broken.
 
 ---
 
@@ -102,11 +104,11 @@ Se preservan las firmas públicas v2.x conocidas; algunos inputs inseguros ahora
 
 | Command | Result | Notes |
 |---|---:|---|
-| `go test ./...` | **PASS** | Ejecución de suite unitaria completa |
-| `go test -race ./...` | **PASS** | Validación del detector de carreras en todo el repo |
-| `go test ./test -run 'Test.*ZeroLoss' -count=1` | **PASS** | Verificación de pérdida cero |
-| `go test ./test -run 'TestStressSyncClose' -count=1` | **PASS** | Stress concurrent de Sync y Close |
-| `go test ./test -bench 'Benchmark' ...` | **PASS** | Medición de rendimiento |
+| `go test ./...` | **PASS** | Execution of the complete unit suite |
+| `go test -race ./...` | **PASS** | Validation of the race detector across the entire repository |
+| `go test ./test -run 'Test.*ZeroLoss' -count=1` | **PASS** | Zero-loss verification |
+| `go test ./test -run 'TestStressSyncClose' -count=1` | **PASS** | Concurrent stress testing of Sync and Close |
+| `go test ./test -bench 'Benchmark' ...` | **PASS** | Performance measurement |
 
 ---
 
@@ -129,8 +131,8 @@ Se preservan las firmas públicas v2.x conocidas; algunos inputs inseguros ahora
 ---
 
 ## Fuzz / Stress Regression Summary
-* Todos los targets de fuzzing (`FuzzStructuredJSONValidLine`, `FuzzEventBuilderJSONValid`, etc.) pasaron en verde tras 20s de fuzzing cada uno.
-* Las pruebas de estrés finalizan sin fugas de goroutines ni bloqueos indefinidos.
+* All fuzzing targets (`FuzzStructuredJSONValidLine`, `FuzzEventBuilderJSONValid`, etc.) passed green after 20s of fuzzing each.
+* Stress tests complete without goroutine leaks or indefinite blocks.
 
 ---
 
@@ -138,19 +140,19 @@ Se preservan las firmas públicas v2.x conocidas; algunos inputs inseguros ahora
 
 | Item | Status | Notes |
 |---|---|---|
-| Unit tests pass | **PASS** | Ejecutado bajo suite de regresión |
+| Unit tests pass | **PASS** | Executed under regression suite |
 | Race detector clean | **PASS** | 0 data races |
-| Fuzzing regression clean | **PASS** | Verificado en Fases 01-07 |
-| Stress regression clean | **PASS** | Verificado en Fases 05-07 |
-| Private files excluded | **PASS** | `.private/` ignorado en Git |
-| Docs sanitized | **PASS** | Sin rutas absolutas ni file:/// |
-| Release Tag created | **NO** | Reservado para decisión del maintainer |
+| Fuzzing regression clean | **PASS** | Verified in Phases 01-07 |
+| Stress regression clean | **PASS** | Verified in Phases 05-07 |
+| Private files excluded | **PASS** | `.private/` ignored in Git |
+| Docs sanitized | **PASS** | Without absolute paths or file:/// |
+| Release Tag created | **NO** | Reserved for maintainer decision |
 
 ---
 
 ## Risks / Remaining Debt
-* La API clásica basada en mapas genera allocations en Heap, lo cual queda documentado como deuda técnica de performance tolerada para mantener retrocompatibilidad en v2.x.
-* En entornos Windows sin privilegios elevados, la validación de enlaces simbólicos mediante `os.Lstat` podría degradar u omitir verificaciones si el OS no lo permite.
+* The classic map-based API generates Heap allocations, which is documented as tolerated technical performance debt to maintain backward compatibility in v2.x.
+* In Windows environments without elevated privileges, symlink validation using `os.Lstat` could degrade or skip checks if the OS does not allow it.
 
 ---
 
@@ -164,4 +166,4 @@ Se preservan las firmas públicas v2.x conocidas; algunos inputs inseguros ahora
 ---
 
 ## Final Recommendation
-Se declara la Fase 08 como **finalizada y lista para commit**. Se aconseja proceder con la revisión de la documentación y coordinar el etiquetado del release candidate.
+Phase 08 is declared **completed and ready for commit**. It is advised to proceed with the review of the documentation and coordinate the tagging of the release candidate.

@@ -29,31 +29,31 @@ The current engineering effort focuses on improving:
 
 ---
 
-## 3. Current Phase
+## 3. Current Release Focus
 
-Current phase:
+Current release candidate focus:
 
 ```text
-Fase 10 — Structured JSON Maturity
+Structured logging maturity, final SSD validation, and release candidate preparation.
 ```
 
 Current status:
 
 ```text
-In Progress / Running Phase 10 integration gate
+Completed / Final SSD Hard Validation ready for release candidate review
 ```
 
 Next action:
 
 ```text
-Review Sprint 10.9 Integration Gate, then decide whether to proceed to Final SSD Hard Validation.
+Commit final public documentation updates, then prepare the release candidate tag.
 ```
 
-Summary of Phase 09 results:
+Historical performance recovery summary:
 - **Stability**: Retained. All E2E correctness and regression suites pass under Go test and race detector.
 - **Performance Recovery**: Substantially recovered on the external disk diagnostics run. Hot-path and 1KB/4KB latency decreased by 42% to 44%, and memory allocations (B/op) on formatting methods were eliminated (dropping to 0 B/op).
 - **Diagnostics & Tooling**: Fully integrated `benchstat` comparisons and pprof CPU/memory profiling.
-- **SSD Caveat**: All Phase 09 results were verified on an external disk repository copy. Final release candidate performance validation must be repeated on the internal SSD.
+- **SSD Caveat**: All historical recovery results were verified on an external disk repository copy. Final release candidate performance validation must be repeated on the internal SSD.
 
 ---
 
@@ -139,15 +139,15 @@ Agents working on this repository must follow these rules:
 3. Do not commit or recommend committing `.private/`.
 4. Do not commit `.pprof`, `.prof`, `.trace`, dumps or raw local evidence.
 5. Do not mix core logger changes with documentation-only commits.
-6. Keep Fase 00 documentary/configurational only.
+6. Keep documentation-only commits separate from code changes.
 7. Before each commit, check private-file exclusion.
-8. Every phase must produce:
+8. Every engineering milestone must produce:
 
    * one public sanitized report under `docs/reports/`;
    * one private raw evidence report under `.private/reports/`, when evidence exists.
 9. Public reports must not include secrets, absolute local paths or unsanitized logs.
 10. Performance claims must be reproducible through documented commands.
-11. Prefer Spanish for planning and AGY prompts unless the task explicitly requires English.
+11. Write public technical reports in English to keep the public repository accessible.
 12. Be direct, technical and evidence-driven.
 
 ---
@@ -160,15 +160,23 @@ Expected public documentation:
 docs/
   README.md
   ACACIA_PROJECT_CONTEXT.md
-  ACACIA_IMPROVEMENT_ROADMAP.md
-  PUBLIC_PRIVATE_DOCUMENTATION_POLICY.md
-  TESTING_AND_BENCHMARKING.md
-  REPORTING_GUIDE.md
-  SECURITY_HARDENING_PLAN.md
-  PERFORMANCE_ENGINEERING_PLAN.md
+  QUALITY_AND_VALIDATION.md
   MIGRATION_STRATEGY.md
+  plans/
+    roadmap.md
+    performance-engineering.md
+    security-hardening.md
+    performance-recovery.md
+    structured-json-maturity.md
+    structured-json-api-contract.md
+  policies/
+    PUBLIC_PRIVATE_DOCUMENTATION_POLICY.md
+    REPORTING_GUIDE.md
+    TESTING_AND_BENCHMARKING.md
   adr/
   reports/
+    final-ssd-hard-validation-report.md
+  guides/
   runbooks/
   templates/
 ```
@@ -177,11 +185,12 @@ Expected private local structure:
 
 ```text
 .private/
-  audits/
+  README.md
+  ssd-hard-validation/
   reports/
   evidence/
-  pprof/
   bench/
+  pprof/
   fuzz/
   stress/
   tmp/
@@ -189,23 +198,23 @@ Expected private local structure:
 
 ---
 
-## 8. Roadmap Summary
+## 8. Historical Engineering Timeline
 
-The improvement roadmap is organized as follows:
+The historical engineering timeline is organized as follows:
 
 ```text
-Fase 00 — Organización del repositorio
-Fase 00B — Corrección y validación final de alcance
-Fase 01 — Baseline reproducible
-Fase 02 — API estructurada tipada
-Fase 03 — Encoder JSON append-only
-Fase 04 — Redacción y seguridad de datos sensibles
-Fase 05 — Backpressure, cola y memoria
-Fase 06 — Filesystem, permisos y rotación segura
-Fase 07 — Semántica formal de Sync y Close
-Fase 08 — Documentación, migración y release
-Fase 09 — Performance Recovery, Architecture Review & OpenTelemetry Compatibility
-Fase 10 — Structured JSON Maturity
+Phase 00 — Repository Organization
+Phase 00B — Scope Alignment and Final Validation
+Phase 01 — Reproducible Baseline
+Phase 02 — Typed Structured API
+Phase 03 — Append-only JSON Encoder
+Phase 04 — Sensitive Data Redaction and Security
+Phase 05 — Queue, Backpressure, and Memory
+Phase 06 — Filesystem, Permissions, and Rotation
+Phase 07 — Sync and Close Semantics
+Phase 08 — Documentation, Migration, and Release
+Phase 09 — Performance Recovery, Architecture Review & OpenTelemetry Compatibility
+Phase 10 — Structured JSON Maturity
 ```
 
 ---
@@ -254,11 +263,9 @@ Profiles must be stored only under `.private/pprof/`.
 
 ---
 
-## 11. Files That Must Not Be Mixed Into Fase 00 Commit
+The Phase 00 commit should remain documentary/configurational.
 
-The Fase 00 commit should remain documentary/configurational.
-
-Do not stage these files as part of Fase 00 unless a maintainer explicitly changes the scope:
+Do not stage these files as part of Phase 00 unless a maintainer explicitly changes the scope:
 
 ```text
 acacia.go
@@ -274,7 +281,7 @@ These are considered experimental or implementation-phase files and should be ha
 
 When assisting this project:
 
-* use Spanish by default;
+* use English for public files, and keep prompt context direct;
 * avoid praise or marketing language;
 * identify risks directly;
 * separate public, private and non-committable material;
@@ -290,17 +297,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review Sprint 10.9 Integration Gate, then decide whether to proceed to Final SSD Hard Validation.
+Commit final public documentation updates, then prepare the release candidate tag.
 ```
 
 Recommended commit message:
 
 ```text
-test: run Phase 10 structured JSON integration gate
+docs: polish and organize public documentation for release candidate review
 ```
 
 After that:
 
 ```text
-Decide whether to proceed to Final SSD Hard Validation.
+Prepare release candidate tag.
 ```

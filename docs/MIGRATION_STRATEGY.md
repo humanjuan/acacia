@@ -1,14 +1,14 @@
-# Acacia Migration Strategy
+# Migration Strategy
 
-This document guides developers migrating from classic v2.x dynamic dynamic logging to the hardened, typed builder APIs with lower and predictable allocation behavior than the legacy map/interface path and safe filesystem operations introduced in this release candidate.
+This guide helps you migrate from legacy v2.x map-based logging to the new typed builder APIs and safe filesystem operations.
 
 ---
 
 ## 1. Compatibility Policy
 
-* **API Coexistence (v2.x):** v2.x source compatibility is preserved for supported safe inputs; unsafe filenames, symlinks, and insecure modes may now be rejected by design. No existing public methods or options have been deleted or signature-modified.
-* **Legacy Map Path:** Calling `logger.Info(map[string]interface{}{...})` remains fully supported. However, it is documented as performance debt due to `interface{}` boxing and runtime reflection overhead.
-* **Next Major Version (v3.0.0):** Moving legacy methods to a separate compatibility package (`compat`) is a future possibility, but no final decision has been made. For this release, they coexist inside the root package.
+* **API Coexistence:** v2.x source compatibility is preserved. However, unsafe filenames, symlinks, and insecure file modes are now rejected by design. No existing public methods or options have been deleted or modified.
+* **Legacy Map Path:** Calling `logger.Info(map[string]interface{}{...})` remains fully supported, but it allocates more memory due to reflection.
+* **Next Major Version (v3.0.0):** We might move legacy methods to a separate compatibility package in the future, but they remain in the root package for now.
 
 ---
 
@@ -87,14 +87,14 @@ func main() {
 ### Structured JSON Builder Migration
 
 For high-frequency structured logs, prefer the typed builder over `map[string]interface{}`.
-The legacy structured map path remains for v2.x compatibility, but new code should prefer:
-- flat typed fields;
-- `Object` for nested objects;
-- `Array` for lists;
-- `Group` for semantic nested scopes;
-- `Namespace` for flat prefixed keys;
-- `RawJSON` only for trusted pre-redacted JSON;
-- `Any` only for low-frequency dynamic payloads.
+
+#### Recommended Structured Logging Path
+To get the most performance and security out of Acacia's structured logging engine, follow this path:
+* **Event Builder (Hot Path):** Use flat typed fields (`.Str()`, `.Int()`, etc.) directly on the event for maximum efficiency.
+* **Object/Array Builders:** Use `.Object()` and `.Array()` callbacks for nested structures to avoid reflection.
+* **RawJSON:** Use `.RawJSON()` only when handling pre-serialized JSON that is already validated and trusted (note: no internal redaction occurs on raw payloads).
+* **Any Fallback:** Use `.Any()` only for dynamic values or low-frequency paths (reflection-based and slower).
+* **Legacy Map Path:** Calling `logger.Info(map[string]interface{}{...})` is kept for v2.x source compatibility but is not recommended for high-performance paths due to reflection boxing.
 
 ---
 

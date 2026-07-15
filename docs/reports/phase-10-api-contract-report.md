@@ -1,4 +1,5 @@
 # Phase 10 — API Contract Report (Sprint 10.0)
+*This is a historical engineering report. The filename is kept for audit continuity.*
 
 ## Objective
 The objective of this sprint was to define and establish the formal public API contract for Acacia Logger's structured JSON maturity phase (Phase 10). The design covers flat fields, nested objects, typed arrays, namespace handling, raw JSON payload injection, dynamic interface fallback, recursive redaction logic, and error/panic boundary safety before writing any productive code.

@@ -1,5 +1,7 @@
 # Phase 10 — Structured JSON Maturity Roadmap Report
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 ## Objective
 The objective of this planning phase was to design a robust, secure, and high-performance structured JSON logging architecture for Acacia. This design aims to make Acacia market-competitive with production-grade loggers in the Go ecosystem by supporting first-class structured JSON use cases (nested objects, arrays, groups/namespaces, and raw JSON payloads), while aiming for zero-allocation targets on documented benchmarks for hot paths and robust sensitive data redaction.
 

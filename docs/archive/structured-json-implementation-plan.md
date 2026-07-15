@@ -1,4 +1,4 @@
-# Plan de Madurez de JSON Estructurado — Fase 10
+# Plan de Madurez de JSON Estructurado
 
 ## Objetivo
 Llevar el soporte de JSON estructurado de Acacia a un nivel profesional y competitivo en el mercado, habilitando tanto campos planos de alto rendimiento como estructuras JSON multi-nivel tipadas, robustas, seguras y libres de reflexión en el hot path.
@@ -28,9 +28,9 @@ Llevar el soporte de JSON estructurado de Acacia a un nivel profesional y compet
   - Comparar ergonómicamente patrones comunes de la comunidad (flat structured fields, callbacks para builders, namespaces planos y marshaler interfaces) sin duplicar diseños existentes.
   - Asegurar la estabilidad de la rama v2.x.
   - Definir qué APIs se consideran de camino rápido (camino rápido con target de zero-allocation en benchmarks) y cuáles representan caminos lentos y compatibles (reflection/maps).
-  - Diseñar el API Contract público formal en `docs/PHASE_10_STRUCTURED_JSON_API_CONTRACT.md`.
+  - Diseñar el API Contract público formal en `structured-json-api-contract.md`.
 - **Criterios de Aceptación**:
-  - Documento de contrato de API pública finalizado en `docs/PHASE_10_STRUCTURED_JSON_API_CONTRACT.md`.
+  - Documento de contrato de API pública finalizado en `structured-json-api-contract.md`.
   - Contrato público y decisiones de diseño registradas y aprobadas en el ADR 0004.
   - Reglas de redacción recursiva, manejo de pánicos y políticas de RawJSON acordadas.
 

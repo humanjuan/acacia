@@ -1,7 +1,9 @@
 # Phase 09 Diagnostics Report
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 ## Objective
-The objective of this diagnostics sprint was to isolate, reproduce, and identify the root causes of the documented performance regressions in the Acacia Release Candidate (RC) compared to the stable baseline `v2.3.0` (namely, +21% to +23% latency on raw string/bytes paths and heavy degradation/high allocation count on payloads of 1KB and larger).
+The objective of this diagnostics sprint was to isolate, reproduce, and identify the root causes of the documented performance regressions in the Acacia Release Candidate (RC) compared to the stable baseline `v2.3.0` (namely, a +21% to +23% latency increase on raw string/bytes paths and heavy degradation/high allocation counts on payloads of 1KB and larger).
 
 ## Scope
 - Diagnostic profiling of atomic operations, state checks, and counter contention.
@@ -79,7 +81,7 @@ The table below aggregates the observed benchmark statistics for representative 
 | **Append / Buffer** | `Phase09AppendLineBytes1KB` | 1 | ~20.63 ns | 0 | 0 | Reusing buffers avoids append allocations |
 | **Buffer Growth** | `DynamicAppend` | 1 | ~3836.00 ns | ~16.14 KiB | 10.0 | Dynamic buffer growth is extremely expensive |
 | **Buffer Growth** | `PreGrow` | 1 | ~584.60 ns | 0 | 0 | Pre-allocated slices eliminate allocations |
-| **Buffer Growth** | `SyncPool` | 1 | ~470.60 ns | 0 | 0 | pooling buffers offers best performance |
+| **Buffer Growth** | `SyncPool` | 1 | ~470.60 ns | 0 | 0 | Pooling buffers offers best performance |
 | **Writer Lag** | `Phase09WriterLagSmallPayload` | 1 | ~214.50 ns | 72 | 0 | Fast-path enqueuing has minimal overhead |
 | **Writer Lag** | `Phase09WriterLag1KBPayload` | 1 | ~1.49 µs | ~2.38 KiB | 1.0 | Buffer growth under slow consumer triggers allocations |
 | **Queue** | `Phase09QueueEnqueueOpenState` | 1 | ~223.10 ns | 66 | 0 | Enqueue operations are fast but have small B/op average |
@@ -98,7 +100,7 @@ The table below aggregates the observed benchmark statistics for representative 
 
 ### Confirmed
 1. **Dynamic Buffer Growth is the Primary Cause of allocations (>0 B/op)**: As proven by `Phase09BufferGrowthDynamic` benchmarks, dynamic slice resizing (`DynamicAppend`) requires 10 allocations and takes 3.8 µs per operation. In contrast, pre-allocated slices (`PreGrow`) or buffer pooling (`SyncPool`) drop allocations to **0 B/op** and latency to ~470-580 ns.
-2. **Buffer growth is amplified under slow consumer (Writer Lag)**: In `Phase09WriterLag1KBPayload`, where writing is restricted by external disk speed, memory footprint escalates to 2.38 KiB/op and 1 allocation/op. Memory profiles confirm that 92.75% of all heap allocations are allocated in `appendLine` and `appendLineBytes` because the double-buffer grows unchecked on high-throughput bursts before flushes occur.
+2. **Buffer growth is amplified under slow consumer (Writer Lag)**: In `Phase09WriterLag1KBPayload`, where writing is restricted by external disk speed, memory footprint escalates to 2.38 KiB/op and 1 allocation/op. Memory profiles confirm that 92.75% of all heap allocations are allocated in `appendLine` and `appendLineBytes` because the double-buffer grows unchecked during high-throughput bursts before flushes occur.
 3. **The `io.Writer` interface boundary is NOT a cause of the regressions**: The micro-benchmarks comparing `io.Writer` interface invocations with direct struct pointer calls show differences below 0.1 ns.
 
 ### Likely

@@ -1,11 +1,11 @@
-# Runbook de Auditoría Local (Local Audit Runbook)
+# Local Audit Runbook
 
-Este runbook describe los pasos obligatorios para auditar el código localmente antes de proponer cualquier cambio al repositorio público.
+This runbook describes the steps to audit the code locally before committing to the repository.
 
 ---
 
-## Paso 1: Pruebas de Correctitud Lógica y Concurrencia
-Ejecuta la suite de pruebas unitarias y activa el race detector para descartar condiciones de carrera en el pool de buffers o la cola asíncrona:
+## Step 1: Unit and Concurrency Tests
+Run the unit tests and the Go race detector to check the buffer pools and asynchronous queue:
 ```bash
 go test ./...
 go test -race ./...
@@ -13,41 +13,41 @@ go test -race ./...
 
 ---
 
-## Paso 2: Ejecución de Benchmarks de Contención (Hostiles)
-Ejecuta los benchmarks de contención forzando un solo hilo para simular hardware de bajo recurso y maximizar la competencia por el planificador de Go:
+## Step 2: Single-Core Contention Benchmarks
+Run benchmarks forcing a single OS thread to check goroutine scheduling contention:
 ```bash
 GOMAXPROCS=1 go test ./... -bench=. -benchmem -run '^$' -count=10 > .private/bench/bench_gmp1.txt
 ```
-Analiza el archivo `.private/bench/bench_gmp1.txt` para garantizar que no haya regresiones en `allocs/op` o en `ns/op`.
+Review `.private/bench/bench_gmp1.txt` to ensure allocations and latencies have not regressed.
 
 ---
 
-## Paso 3: Generación de Perfiles y Almacenamiento Seguro
-Si detectas regresiones de rendimiento, genera los perfiles de CPU y Heap, guardándolos estrictamente en el directorio privado:
+## Step 3: Local Profiling
+If you detect performance regressions, collect CPU and Heap profiles directly in the private directory:
 ```bash
 go test -cpuprofile=.private/pprof/cpu.out -memprofile=.private/pprof/mem.out -bench=. -run=^$ ./...
 ```
 
 ---
 
-## Paso 4: Validación de Fugas en Git (Exclusión Check)
-Antes de preparar un commit, ejecuta estos comandos para verificar que no estás incluyendo archivos privados locales en el commit:
+## Step 4: Versioning Leak Checks
+Before committing, verify that no private files are staged:
 
-1. **Chequeo de Archivos Ignorados:**
+1. **Verify Ignored Status:**
    ```bash
    git check-ignore -v .private/README.md
-   git check-ignore -v .private/reports/phase-00-private-evidence.md
+   git check-ignore -v .private/reports/private-evidence.md
    ```
-   *Ambos comandos deben imprimir la regla de exclusión correspondiente de tu `.gitignore`.*
+   *These commands must output the matching ignore rule from your `.gitignore`.*
 
-2. **Chequeo de tracking accidental:**
+2. **Verify Untracked Status:**
    ```bash
    git ls-files .private docs/private reports/private
    ```
-   *Este comando debe retornar una salida completamente vacía.*
+   *This command must output nothing.*
 
-3. **Status Limpio:**
+3. **Verify Git Status:**
    ```bash
    git status --short
    ```
-   *Verifica que no aparezca ningún archivo `.pprof`, `.prof`, `.out` ni `.trace` listado.*
+   *Ensure no files with `.pprof`, `.prof`, `.out`, or `.trace` extensions are listed.*

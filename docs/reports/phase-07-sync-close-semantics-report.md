@@ -1,16 +1,18 @@
 # Phase 07 — Sync and Close Formal Semantics Report
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 Date: 2026-07-08
 Branch: `dev`
 Commit: `a8843fb`
 Go version: `go1.23.2`
 OS/Arch: `darwin/amd64`
-Scope: Formalización de la semántica de sincronización (`Sync()`) y cierre (`Close()`) del logger asíncrono Acacia.
+Scope: Formalization of the synchronization (`Sync()`) and closure (`Close()`) semantics of the Acacia asynchronous logger.
 
 ---
 
 ## Objective
-El objetivo de la Fase 07 es definir, estructurar e implementar una semántica formal de sincronización determinista (`Sync()`) y apagado seguro (`Close()`) para Acacia, eliminando deadlocks, previniendo excepciones por inyección de logs post-cierre y garantizando la entrega de todos los eventos de log que han sido aceptados antes de la invocación de estas barreras.
+The objective of Phase 07 is to define, structure, and implement formal semantics for deterministic synchronization (`Sync()`) and secure shutdown (`Close()`) in Acacia, eliminating deadlocks, preventing exceptions from post-close log injection, and guaranteeing the delivery of all log events accepted before these barriers are invoked.
 
 ---
 
@@ -28,68 +30,68 @@ El objetivo de la Fase 07 es definir, estructurar e implementar una semántica f
 ---
 
 ## Scope Decision
-* **Dentro de Alcance:**
-  * Máquina de estados atómica (`stateOpen`, `stateClosing`, `stateClosed`).
-  * No cerrar físicamente el canal `events` para evitar panics de escritura concurrentes.
-  * Canal de control dedicado (`control`) y protocolo estructurado de cierre (`isClose: true`).
-  * Bloqueos en productores liberados de forma determinista mediante el cierre del canal `done`.
-  * Drenaje completo asíncrono y fsync del archivo antes del apagado.
-  * Suite de pruebas unitarias, de pérdida cero, de estrés y de carrera concurrentes para Sync/Close.
-* **Fuera de Alcance:**
-  * Rediseño de políticas generales de rotación de archivos.
-  * Rediseño de la infraestructura interna de asincronía y pooling de buffers JSON.
+* **In Scope:**
+  * Atomic state machine (`stateOpen`, `stateClosing`, `stateClosed`).
+  * Avoid physically closing the `events` channel to prevent concurrent write panics.
+  * Dedicated control channel (`control`) and structured shutdown protocol (`isClose: true`).
+  * Producer blocks released deterministically by closing the `done` channel.
+  * Complete asynchronous draining and file fsync before shutdown.
+  * Complete unit, zero-loss, stress, and concurrent race test suite for Sync/Close.
+* **Out of Scope:**
+  * Redesign of general file rotation policies.
+  * Redesign of internal asynchrony infrastructure and JSON buffer pooling.
 
 ---
 
 ## Formal Sync Semantics
-* `Sync()` actúa como una barrera estricta que captura el snapshot de la secuencia encolada (`enqueuedSeq`).
-* Espera hasta que el escritor asíncrono procese y escriba todos los eventos hasta dicha secuencia inclusive, ejecutando un `Sync()` (fsync) físico en el descriptor.
-* Si el logger se encuentra cerrado o en proceso de cierre, `Sync()` retorna de inmediato como un no-op seguro para evitar bloqueos.
-* Es concurrente y reentrante (múltiples goroutines pueden llamarlo simultáneamente).
+* `Sync()` acts as a strict barrier that captures a snapshot of the enqueued sequence (`enqueuedSeq`).
+* It waits until the asynchronous writer processes and writes all events up to and including that sequence, executing a physical `Sync()` (fsync) on the descriptor.
+* If the logger is closed or closing, `Sync()` returns immediately as a safe no-op to prevent lockups.
+* It is concurrent and reentrant (multiple goroutines can call it simultaneously).
 
 ---
 
 ## Formal Close Semantics
-* `Close()` es completamente idempotente, controlado a través de una instancia `sync.Once`.
-* Transiciona de forma atómica el estado del logger a `stateClosing`, impidiendo la aceptación de nuevos logs.
-* Cierra el canal `done`, liberando instantáneamente a todos los productores que estuviesen bloqueados bajo la política `BlockOnFull`.
-* Envía un evento de control especial al escritor asíncrono para notificarle que debe iniciar el apagado ordenado.
-* El escritor procesa los elementos remanentes encolados en `events` hasta vaciar la cola por completo.
-* Finalmente, se realiza un `flush()` del búfer interno, se ejecuta el fsync en el descriptor del archivo y se cierra el descriptor físico.
-* Al finalizar el drenaje de hilos en `wg.Wait()`, el estado se establece en `stateClosed`.
+* `Close()` is fully idempotent, controlled via a `sync.Once` instance.
+* It atomically transitions the logger state to `stateClosing`, preventing the acceptance of new logs.
+* It closes the `done` channel, instantly releasing all producers blocked under the `BlockOnFull` policy.
+* It sends a special control event to the asynchronous writer to notify it to begin an orderly shutdown.
+* The writer processes the remaining enqueued elements in `events` until the queue is completely empty.
+* Finally, the internal buffer is flushed, fsync is executed on the file descriptor, and the physical descriptor is closed.
+* Upon completion of the thread draining in `wg.Wait()`, the state is set to `stateClosed`.
 
 ---
 
 ## Post-Close Behavior
-* **`Sync()` después de `Close()`:** No-op instantáneo (retorna de inmediato sin bloquear).
-* **`Close()` después de `Close()`:** No-op instantáneo idempotente protegido por `sync.Once`.
-* **Escrituras de Logs (`Info`, `Warn`, `Error`, `Debug`, `Write`, `InfoBytes`, `Event().Send()`) después de `Close()`:**
-  * No bloquean en ningún caso.
-  * No lanzan excepciones de tipo `panic: send on closed channel`.
-  * Incrementan el contador atómico de descartes (`DroppedTotal`) y limpian inmediatamente los buffers reutilizables del pool.
+* **`Sync()` after `Close()`:** Instant no-op (returns immediately without blocking).
+* **`Close()` after `Close()`:** Idempotent instant no-op protected by `sync.Once`.
+* **Log Writes (`Info`, `Warn`, `Error`, `Debug`, `Write`, `InfoBytes`, `Event().Send()`) after `Close()`:**
+  * They do not block under any circumstances.
+  * They do not throw exceptions of type `panic: send on closed channel`.
+  * They increment the atomic drop counter (`DroppedTotal`) and immediately clean up reusable buffers from the pool.
 
 ---
 
 ## Control Event Protocol
-* Las peticiones de control se componen a través de la estructura `controlReq` con canales de confirmación (`ack`).
-* El escritor es la única entidad responsable de leer `control` y realizar `close(ack)`.
-* Durante la fase de cierre (`isClose: true`), el escritor realiza una limpieza final drenando de forma exhaustiva los canales de control pendientes para garantizar que no existan hilos clientes bloqueados.
+* Control requests are composed via the `controlReq` struct with acknowledgment (`ack`) channels.
+* The writer is the sole entity responsible for reading `control` and performing `close(ack)`.
+* During the shutdown phase (`isClose: true`), the writer performs a final cleanup by exhaustively draining pending control channels to guarantee that no client threads are blocked.
 
 ---
 
 ## Zero-Loss Guarantee
-* **Attempted Event:** Un evento enviado por el cliente que intenta ser procesado.
-* **Accepted Event:** Evento que supera la validación de estado y es insertado exitosamente en el canal asíncrono `events`.
-* **Dropped Event:** Evento descartado debido a saturación de políticas o estado de apagado.
-* **Written Event:** Evento transferido con éxito al almacenamiento persistente.
-* **Garantía:** Todo evento **Accepted** previo al inicio de `Sync()` o `Close()` tiene entrega garantizada (cero pérdidas) en el archivo físico.
+* **Attempted Event:** An event sent by the client trying to be processed.
+* **Accepted Event:** An event that passes state validation and is successfully inserted into the asynchronous `events` channel.
+* **Dropped Event:** An event discarded due to policy saturation or shutdown state.
+* **Written Event:** An event successfully transferred to persistent storage.
+* **Guarantee:** Every **Accepted** event prior to the initiation of `Sync()` or `Close()` is guaranteed delivery (zero loss) to the physical file.
 
 ---
 
 ## Public API Impact
-* No hay cambios ni roturas de firmas públicas de métodos existentes de Acacia.
-* Los métodos `Sync()` y `Close()` mantienen sus firmas de v2.x.
-* El método `Status()` pasa a reportar el estado exacto en base al ciclo de vida del logger (`stateOpen`).
+* No changes or breakage of public signatures of existing Acacia methods.
+* `Sync()` and `Close()` methods retain their v2.x signatures.
+* The `Status()` method now reports the exact state based on the logger's lifecycle (`stateOpen`).
 
 ---
 
@@ -106,10 +108,10 @@ El objetivo de la Fase 07 es definir, estructurar e implementar una semántica f
 
 | Command | Result | Notes |
 |---|---:|---|
-| `go test ./...` | **PASS** | Ejecución de suite unitaria completa |
-| `go test -race ./...` | **PASS** | Validación del detector de carreras en todo el repo |
-| `go test ./test -run 'Test.*ZeroLoss' -count=1` | **PASS** | Pruebas de pérdida cero en Sync y Close |
-| `go test ./test -run TestStressSyncClose -count=1` | **PASS** | Stress concurrent de Sync y Close |
+| `go test ./...` | **PASS** | Execution of the complete unit suite |
+| `go test -race ./...` | **PASS** | Validation of the race detector across the entire repository |
+| `go test ./test -run 'Test.*ZeroLoss' -count=1` | **PASS** | Zero-loss tests on Sync and Close |
+| `go test ./test -run TestStressSyncClose -count=1` | **PASS** | Concurrent stress testing of Sync and Close |
 
 ---
 
@@ -117,10 +119,10 @@ El objetivo de la Fase 07 es definir, estructurar e implementar una semántica f
 
 | Test | Result | Notes |
 |---|---:|---|
-| `TestZeroLossBeforeSync` | **PASS** | N logs escritos previo a Sync aparecen íntegros |
-| `TestZeroLossBeforeClose` | **PASS** | N logs escritos previo a Close aparecen íntegros |
-| `TestZeroLossConcurrentAcceptedBeforeClose` | **PASS** | Logrado en concurrencia masiva sin pérdidas |
-| `TestDropPoliciesNoPromise` | **PASS** | DroppedTotal + EnqueuedTotal igual a intentos |
+| `TestZeroLossBeforeSync` | **PASS** | N logs written prior to Sync appear intact |
+| `TestZeroLossBeforeClose` | **PASS** | N logs written prior to Close appear intact |
+| `TestZeroLossConcurrentAcceptedBeforeClose` | **PASS** | Achieved in massive concurrency without loss |
+| `TestDropPoliciesNoPromise` | **PASS** | DroppedTotal + EnqueuedTotal equals attempts |
 
 ---
 
@@ -128,13 +130,13 @@ El objetivo de la Fase 07 es definir, estructurar e implementar una semántica f
 
 | Test | Result | Notes |
 |---|---:|---|
-| `TestStressSyncCloseConcurrentProducers` | **PASS** | 32 productores concurrentes escribiendo durante Sync/Close |
-| `TestStressSyncCloseBlockOnFull` | **PASS** | 64 escritores bloqueados liberados de inmediato sin deadlock |
-| `TestStressSyncCloseDropNewest` | **PASS** | Estabilidad asíncrona bajo descartes e intervalos de Sync |
-| `TestStressSyncCloseDropOldest` | **PASS** | Estabilidad asíncrona bajo desalojo de cabecera en cola |
-| `TestStressSyncCloseDropDebugOnly` | **PASS** | Pruebas de prioridad de eventos bajo cierre asíncrono |
-| `TestStressSyncCloseRotation` | **PASS** | Escritores pesados rotando y cerrando concurrentemente |
-| `TestStressRepeatedClose` | **PASS** | 50 goroutines llamando Close simultáneamente sin pánicos |
+| `TestStressSyncCloseConcurrentProducers` | **PASS** | 32 concurrent producers writing during Sync/Close |
+| `TestStressSyncCloseBlockOnFull` | **PASS** | 64 blocked writers released immediately without deadlock |
+| `TestStressSyncCloseDropNewest` | **PASS** | Asynchronous stability under drops and Sync intervals |
+| `TestStressSyncCloseDropOldest` | **PASS** | Asynchronous stability under queue head eviction |
+| `TestStressSyncCloseDropDebugOnly` | **PASS** | Event priority testing under asynchronous shutdown |
+| `TestStressSyncCloseRotation` | **PASS** | Heavy writers rotating and closing concurrently |
+| `TestStressRepeatedClose` | **PASS** | 50 goroutines calling Close simultaneously without panics |
 
 ---
 
@@ -142,10 +144,10 @@ El objetivo de la Fase 07 es definir, estructurar e implementar una semántica f
 
 | Target | Result | Notes |
 |---|---:|---|
-| `FuzzStructuredJSONValidLine` | **PASS** | Estabilidad en parseo estructurado legacy |
-| `FuzzEventBuilderJSONValid` | **PASS** | Estabilidad en el generador tipado JSON |
-| `FuzzRedactionSensitiveKeysNoLeak` | **PASS** | Redacción automática de secretos sin regresión |
-| `FuzzValidateLogFilenameNoTraversal` | **PASS** | Bloqueo persistente de path traversal |
+| `FuzzStructuredJSONValidLine` | **PASS** | Stability in legacy structured parsing |
+| `FuzzEventBuilderJSONValid` | **PASS** | Stability in the JSON typed builder |
+| `FuzzRedactionSensitiveKeysNoLeak` | **PASS** | Automatic redaction of secrets without regression |
+| `FuzzValidateLogFilenameNoTraversal` | **PASS** | Persistent blocking of path traversal |
 
 ---
 
@@ -154,33 +156,33 @@ El objetivo de la Fase 07 es definir, estructurar e implementar una semántica f
 ### GOMAXPROCS=1
 | Benchmark | ns/op | B/op | allocs/op | Notes |
 |---|---:|---:|---:|---|
-| `BenchmarkSyncEmpty` | 1180 | 112 | 1 | Barrera básica |
-| `BenchmarkSyncWithBufferedEvents` | 7406 | 128 | 2 | Sincronización intermedia |
-| `BenchmarkCloseEmpty` | 22,000,000 | 808 | 10 | I/O completa del disco |
-| `BenchmarkCloseWithBufferedEvents` | 20,000,000 | 824 | 11 | I/O asíncrona completa |
-| `BenchmarkWriteAfterClose` | 17.1 | 0 | 0 | Cortocircuito atómico instantáneo |
-| `BenchmarkSyncAfterClose` | 0.66 | 0 | 0 | Retorno inmediato optimizado |
-| `BenchmarkConcurrentSync` | 1192 | 112 | 1 | Sincronía paralela |
-| `BenchmarkCloseUnderBlockOnFull` | 23,000,000 | 808 | 10 | Liberación concurrente y cierre |
+| `BenchmarkSyncEmpty` | 1180 | 112 | 1 | Basic barrier |
+| `BenchmarkSyncWithBufferedEvents` | 7406 | 128 | 2 | Intermediate synchronization |
+| `BenchmarkCloseEmpty` | 22,000,000 | 808 | 10 | Full disk I/O |
+| `BenchmarkCloseWithBufferedEvents` | 20,000,000 | 824 | 11 | Full asynchronous I/O |
+| `BenchmarkWriteAfterClose` | 17.1 | 0 | 0 | Instant atomic short-circuit |
+| `BenchmarkSyncAfterClose` | 0.66 | 0 | 0 | Optimized immediate return |
+| `BenchmarkConcurrentSync` | 1192 | 112 | 1 | Parallel sync |
+| `BenchmarkCloseUnderBlockOnFull` | 23,000,000 | 808 | 10 | Concurrent release and close |
 
 ### GOMAXPROCS=2
 | Benchmark | ns/op | B/op | allocs/op | Notes |
 |---|---:|---:|---:|---|
-| `BenchmarkSyncEmpty` | 1104 | 112 | 1 | Barrera básica |
-| `BenchmarkSyncWithBufferedEvents` | 7787 | 128 | 2 | Sincronización intermedia |
-| `BenchmarkCloseEmpty` | 21,000,000 | 858 | 10 | I/O completa del disco |
-| `BenchmarkCloseWithBufferedEvents` | 21,000,000 | 786 | 10 | I/O asíncrona completa |
-| `BenchmarkWriteAfterClose` | 18.9 | 0 | 0 | Cortocircuito atómico instantáneo |
-| `BenchmarkSyncAfterClose` | 0.62 | 0 | 0 | Retorno inmediato optimizado |
-| `BenchmarkConcurrentSync` | 1344 | 112 | 1 | Sincronía paralela |
-| `BenchmarkCloseUnderBlockOnFull` | 20,000,000 | 807 | 10 | Liberación concurrente y cierre |
+| `BenchmarkSyncEmpty` | 1104 | 112 | 1 | Basic barrier |
+| `BenchmarkSyncWithBufferedEvents` | 7787 | 128 | 2 | Intermediate synchronization |
+| `BenchmarkCloseEmpty` | 21,000,000 | 858 | 10 | Full disk I/O |
+| `BenchmarkCloseWithBufferedEvents` | 21,000,000 | 786 | 10 | Full asynchronous I/O |
+| `BenchmarkWriteAfterClose` | 18.9 | 0 | 0 | Instant atomic short-circuit |
+| `BenchmarkSyncAfterClose` | 0.62 | 0 | 0 | Optimized immediate return |
+| `BenchmarkConcurrentSync` | 1344 | 112 | 1 | Parallel sync |
+| `BenchmarkCloseUnderBlockOnFull` | 20,000,000 | 807 | 10 | Concurrent release and close |
 
 ---
 
 ## Security / Reliability Findings
-* **SEC-07-001 (Deadlock en BlockOnFull durante Close):** Remediado.
-* **SEC-07-002 (Panic por escritura post-cierre):** Remediado.
-* **SEC-07-003 (Pérdida de logs aceptados en Close):** Remediado.
+* **SEC-07-001 (Deadlock in BlockOnFull during Close):** Remediated.
+* **SEC-07-002 (Panic due to post-close write):** Remediated.
+* **SEC-07-003 (Loss of accepted logs in Close):** Remediated.
 
 ---
 
@@ -188,16 +190,16 @@ El objetivo de la Fase 07 es definir, estructurar e implementar una semántica f
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| Cierre idempotente y concurrente | **Completo** | `TestConcurrentClose`, `TestStressRepeatedClose` |
-| Bloqueo en productores mitigado | **Completo** | `TestBlockOnFullClose`, `TestStressSyncCloseBlockOnFull` |
-| Sin panics post-cierre | **Completo** | `TestWriteAfterClose`, `BenchmarkWriteAfterClose` |
-| Drenaje total y cero pérdidas | **Completo** | `TestZeroLossBeforeClose`, `TestZeroLossConcurrentAcceptedBeforeClose` |
-| Sync concurrente y de barrera | **Completo** | `TestConcurrentSync`, `TestZeroLossBeforeSync` |
+| Idempotent and concurrent closing | **Complete** | `TestConcurrentClose`, `TestStressRepeatedClose` |
+| Producer blocking mitigated | **Complete** | `TestBlockOnFullClose`, `TestStressSyncCloseBlockOnFull` |
+| No post-close panics | **Complete** | `TestWriteAfterClose`, `BenchmarkWriteAfterClose` |
+| Full draining and zero loss | **Complete** | `TestZeroLossBeforeClose`, `TestZeroLossConcurrentAcceptedBeforeClose` |
+| Concurrent and barrier Sync | **Complete** | `TestConcurrentSync`, `TestZeroLossBeforeSync` |
 
 ---
 
 ## Risks / Regressions
-* El drenaje síncrono del buffer físico puede ralentizar las llamadas de `Close()` en sistemas bajo alta latencia I/O de disco (por ejemplo, redes compartidas o almacenamiento en la nube), lo cual es el comportamiento correcto esperado para evitar pérdidas de información.
+* Synchronous draining of the physical buffer may slow down `Close()` calls on systems under high disk I/O latency (e.g., shared networks or cloud storage), which is the expected correct behavior to avoid data loss.
 
 ---
 

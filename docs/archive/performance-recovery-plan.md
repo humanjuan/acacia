@@ -1,7 +1,7 @@
-# Fase 09 — Performance Recovery, Architecture Review & OpenTelemetry Compatibility
+# Performance Recovery, Architecture Review & OpenTelemetry Compatibility
 
 ## Purpose
-Fase 09 has been established to systematically analyze and recover the performance characteristics of Acacia to match or exceed the v2.3.0 baseline. The primary goal is to achieve this recovery without sacrificing the critical security controls, concurrency stability, sanitization/redaction rules, filesystem hardening, backpressure policies, or Sync/Close semantics implemented during Fases 01–08.
+This document has been established to systematically analyze and recover the performance characteristics of Acacia to match or exceed the v2.3.0 baseline. The primary goal is to achieve this recovery without sacrificing the critical security controls, concurrency stability, sanitization/redaction rules, filesystem hardening, backpressure policies, or Sync/Close semantics implemented in earlier hitches.
 
 ## Background
 The hard performance validation conducted on a dedicated SSD clone identified stability under high concurrency, but documented noticeable regressions:
@@ -199,7 +199,7 @@ The validation process must follow a strict, repeatable methodology to confirm s
 ---
 
 ## Release Decision Options
-Post-Phase 09, the project maintainer will select one of the following paths:
-- **A. Ready for tag after Fase 09**: The regressions are resolved, and the code is cleared for release.
+Post-performance recovery phase, the project maintainer will select one of the following paths:
+- **A. Ready for tag**: The regressions are resolved, and the code is cleared for release.
 - **B. Ready with documented debt**: The release is tagged with known performance characteristics documented in the release notes.
 - **C. Requires partial rebuild**: The architecture requires a deeper pipeline restructure, delaying the release until a future phase.

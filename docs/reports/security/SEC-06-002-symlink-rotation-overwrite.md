@@ -1,5 +1,7 @@
 # Security Finding
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 ## Finding ID: SEC-06-002
 
 ### Metadata
@@ -9,13 +11,13 @@
 - **Status:** Remediated
 
 ### Vulnerability Description
-Durante el proceso de rotación de logs (tanto diario como por tamaño), Acacia renombraba archivos y backups (`log.N -> log.(N+1)`) utilizando `os.Rename` y abría/creaba el nuevo log activo con `os.OpenFile` sin validar si la ruta de destino u origen apuntaba a un enlace simbólico (symlink). Si un atacante local con acceso al directorio de logs pre-creaba un symlink apuntando a un archivo crítico del sistema, la rotación seguía el enlace simbólico y sobrescribía el contenido del archivo objetivo.
+During the log rotation process (both daily and size-based), Acacia renamed files and backups (`log.N -> log.(N+1)`) using `os.Rename` and opened/created the new active log with `os.OpenFile` without validating whether the source or destination path pointed to a symbolic link (symlink). If a local attacker with access to the log directory pre-created a symlink pointing to a critical system file, the rotation followed the symbolic link and overwrote the contents of the target file.
 
 ### Impact
-Destrucción, corrupción o manipulación de archivos clave de configuración del sistema operativo o datos de otras aplicaciones alojadas en la misma máquina física, permitiendo ataques de denegación de servicio (DoS) o elevación de privilegios de forma local.
+Destruction, corruption, or manipulation of key operating system configuration files or data from other applications hosted on the same physical machine, enabling denial of service (DoS) attacks or local privilege escalation.
 
 ### Code Snippet Reference
-Antes de la corrección:
+Before the fix:
 ```go
 for i := maxRot - 1; i >= 0; i-- {
     src := fmt.Sprintf("%s.%d", target, i)
@@ -27,9 +29,9 @@ for i := maxRot - 1; i >= 0; i-- {
 ```
 
 ### Proof of Concept (PoC)
-1. Atacante crea un symlink: `ln -s /etc/shadow /var/log/acacia/app.log.0`
-2. El logger activo alcanza el límite de tamaño y desencadena la rotación.
-3. El logger ejecuta `os.Rename("app.log", "app.log.0")`, lo que sigue el enlace simbólico y sobrescribe `/etc/shadow` con el contenido del log activo.
+1. Attacker creates a symlink: `ln -s /etc/shadow /var/log/acacia/app.log.0`
+2. The active logger reaches the size limit and triggers rotation.
+3. The logger executes `os.Rename("app.log", "app.log.0")`, which follows the symbolic link and overwrites `/etc/shadow` with the contents of the active log.
 
 ### Remediation Plan
-Se implementó un helper `IsSymlink(path)` basado en `os.Lstat` que comprueba si un archivo es un enlace simbólico. Se agregaron validaciones antes de cualquier operación de renombrado u apertura de archivos en `rotateByDate` y `logRotate`. Si alguna ruta involucrada es un symlink, la operación se cancela de forma no bloqueante, se incrementa el contador atómico `RotationErrorsTotal` y se retorna `ErrUnsafeSymlink`.
+A helper `IsSymlink(path)` based on `os.Lstat` was implemented to check if a file is a symbolic link. Validations were added before any rename or file open operations in `rotateByDate` and `logRotate`. If any path involved is a symlink, the operation is canceled non-blockingly, the atomic counter `RotationErrorsTotal` is incremented, and `ErrUnsafeSymlink` is returned.

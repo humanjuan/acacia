@@ -131,14 +131,14 @@ During Sprint 10.4, Group and Namespace APIs were designed and implemented:
 - **Diferimientos**: `Array.Any` and `Namespace.Any` remain deferred.
 
 ## Decision Update — Sprint 10.7 Recursive Redaction Audit
-- **Auditoría Cross-Builder**: Se realizó una auditoría completa de los mecanismos de redacción para todas las APIs de JSON estructurado (Flat, Object, Array, Group, Namespace, RawJSON y Any).
-- **Consistencia en Builders Tipados**: Se endureció la concordancia para la variante de clave `authorization_header` / `authorizationheader` en los selectores globales. Se validó la redacción en todos los tipos de datos (Str, Int, Float64, Bool, Time, Dur, ErrKey, Secret, StrRedacted).
-- **RawJSON Trusted Input Only**: Se confirmó y mantuvo la separación de fronteras: las claves externas no sensibles insertadas mediante RawJSON no sufren redacción interna ni sobrecarga de análisis, preservando el contrato de trusted input.
-- **Any Best-Effort**: Se re-verificó el comportamiento recursivo best-effort en tipos estructurados dinámicos sin compromisos absolutos de redacción perfecta.
-- **Legacy Map Path**: Documentado explícitamente para compatibilidad v2.x, señalando que la redacción en este camino depende del flujo reflectivo clásico de Acacia.
+- **Cross-Builder Audit:** A full audit of the redaction mechanism was completed across all structured JSON APIs (Flat, Object, Array, Group, Namespace, RawJSON, and Any).
+- **Typed Builders Consistency:** Hardened credential matching for the `authorization_header` and `authorizationheader` variants in global matchers. Verified redaction behavior across all supported typed values (`Str`, `Int`, `Float64`, `Bool`, `Time`, `Dur`, `ErrKey`, `Secret`, `StrRedacted`).
+- **RawJSON Trusted Input Boundary:** Confirmed that non-sensitive outer keys bypass internal parsing and redaction, preserving the trusted input contract.
+- **Any Best-Effort:** Verified recursive best-effort redaction inside dynamic structures, without making absolute claims of perfect redaction.
+- **Legacy Map Path:** Documented as a legacy compatibility fallback, noting that its redaction behavior relies on the classic reflection-based flow.
 
 ## Decision Update — Sprint 10.8 Documentation and Examples
-- **Documentación de Adopción**: Se crearon guías técnicas dedicadas para el builder estructurado (`structured-json-builder.md`), la política de redacción de datos sensibles (`structured-json-redaction.md`) y la estrategia de migración (`structured-json-migration.md`).
-- **Ejemplos Compilables**: Se implementaron ejemplos listos para ejecutar bajo `examples/` que cubren el uso básico, anidamiento, alcances, redacción recursiva, RawJSON y el camino lento Any.
-- **Clarificación de Compromisos y Fronteras**: Se documentaron formalmente los límites de RawJSON (trusted input only) y Any (camino lento, best-effort), y se eliminaron claims absolutos de rendimiento.
+- **Developer Documentation:** Created dedicated technical guides for structured logging (`structured-json-builder.md`), sensitive data redaction (`structured-json-redaction.md`), and codebase migration (`structured-json-migration.md`).
+- **Runnable Examples:** Implemented self-contained code projects under `examples/` covering setup, nesting, namespaces, recursive redaction, RawJSON, and the dynamic Any fallback.
+- **Boundaries Clarification:** Documented constraints on RawJSON (trusted input only) and Any (slow path best-effort), and removed any absolute performance claims.
 

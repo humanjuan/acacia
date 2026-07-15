@@ -1,46 +1,48 @@
 # Phase 03 — Append-Only JSON Encoder Report
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 * **Date:** 2026-07-07
 * **Branch:** `dev`
 * **Commit:** `d3ad0ac feat: implement typed structured event builder and add comprehensive testing`
 * **Go version:** `go1.23.2 darwin/amd64`
 * **OS/Arch:** `darwin/amd64`
-* **Scope:** Optimización del motor de serialización JSON estructurado mediante un codificador manual append-only y pooling dinámico.
+* **Scope:** Optimization of the structured JSON serialization engine via a manual append-only encoder and dynamic pooling.
 
 ---
 
 ## Objective
-Optimizar y consolidar la serialización de JSON estructurado dentro del hot path de la API builder tipada de Acacia, reduciendo drásticamente las alocaciones de memoria y el tiempo de CPU en mensajes pequeños, medianos y de gran tamaño (1KB+), eliminando regresiones identificadas en hitos anteriores.
+Optimize and consolidate structured JSON serialization within the hot path of Acacia's typed builder API, drastically reducing memory allocations and CPU time in small, medium, and large (1KB+) messages, resolving regressions identified in previous milestones.
 
 ---
 
 ## Scope Decision
-* **Optimizado:** El motor de codificación de strings y escapes de JSON (`escapeJSONInto`), así como el control de crecimiento y pooling del búfer de bytes (`ensureJSONCapacity`) del hot path estructurado de `Event`.
-* **Mantener sin cambios:** La API pública del constructor de eventos, la lógica asíncrona de escritura/enrutado y las firmas de llamadas del path legacy, preservando compatibilidad retroactiva completa.
+* **Optimized:** The JSON string encoding and escaping engine (`escapeJSONInto`), as well as the capacity management and pooling of the byte buffer (`ensureJSONCapacity`) for the structured hot path of `Event`.
+* **Keep Unchanged:** The public API of the event builder, the asynchronous write/routing logic, and the call signatures of the legacy path, preserving complete backward compatibility.
 
 ---
 
 ## Encoder Design
-* **Codificación Append-only:** Se implementó una escritura manual directa sin recurrir a paquetes reflexivos como `reflect` ni a codificadores dinámicos como `encoding/json.Marshal`. Se usan funciones nativas rápidas como `strconv.AppendInt`, `strconv.AppendFloat` y `time.AppendFormat`.
-* **Escapado de Cuerdas Eficiente:** En `escapeJSONInto` se realiza una estimación y pre-alocación al principio del recorrido. Esto asegura que los caracteres comunes sin escapar se escriban de manera secuencial sin llamadas de comprobación o crecimiento de memoria adicionales.
-* **Estrategia de Búfer Dinámico Reutilizable:** Mediante `ensureJSONCapacity`, cuando el búfer de bytes supera su capacidad actual:
-  1. Se solicita un nuevo búfer con el doble de capacidad al pool de Acacia (`getJSONBufCap`).
-  2. Se copia el contenido acumulado.
-  3. Se retorna el búfer viejo inmediatamente al pool correspondiente (`putJSONBuf`).
-  Esto reduce las alocaciones y el crecimiento explosivo del búfer al reutilizar buckets internos de Acacia. Sin embargo, benchmem todavía reporta alocaciones de control asociadas a sync.Pool/type assertions, especialmente en saltos de capacidad.
+* **Append-only Encoding:** Direct manual writing was implemented without resorting to reflective packages such as `reflect` or dynamic encoders like `encoding/json.Marshal`. Fast native functions like `strconv.AppendInt`, `strconv.AppendFloat`, and `time.AppendFormat` are used.
+* **Efficient String Escaping:** In `escapeJSONInto`, an estimation and pre-allocation are performed at the start of the traversal. This ensures that common unescaped characters are written sequentially without additional checking calls or memory growth.
+* **Reusable Dynamic Buffer Strategy:** Via `ensureJSONCapacity`, when the byte buffer exceeds its current capacity:
+  1. A new buffer with double the capacity is requested from the Acacia pool (`getJSONBufCap`).
+  2. The accumulated content is copied.
+  3. The old buffer is returned immediately to the corresponding pool (`putJSONBuf`).
+  This reduces allocations and explosive buffer growth by reusing Acacia's internal buckets. However, benchmem still reports control allocations associated with sync.Pool/type assertions, especially during capacity jumps.
 
 ---
 
 ## Files Changed
-* **acacia.go**: Modificación de `escapeJSONInto` para integrar pre-alocación óptima, inserción de `ensureJSONCapacity`, y actualización de todos los métodos builder de `Event` para escribir con capacidad garantizada.
-* **test/phase03_json_encoder_test.go**: Suite de pruebas unitarias para el codificador manual (tipos primitivos, escapes, redacción de secretos y payloads grandes).
-* **test/phase03_json_encoder_benchmark_test.go**: Suite de benchmarks para evaluar latencia y consumo de memoria del codificador.
-* **test/phase03_json_encoder_fuzz_test.go**: Suite de fuzzing para evaluar robustez ante escapes, campos mixtos y entradas masivas.
+* **acacia.go**: Modification of `escapeJSONInto` to integrate optimal pre-allocation, insertion of `ensureJSONCapacity`, and updating of all `Event` builder methods to write with guaranteed capacity.
+* **test/phase03_json_encoder_test.go**: Unit test suite for the manual encoder (primitive types, escaping, secret redaction, and large payloads).
+* **test/phase03_json_encoder_benchmark_test.go**: Benchmark suite to evaluate encoder latency and memory consumption.
+* **test/phase03_json_encoder_fuzz_test.go**: Fuzzing suite to evaluate robustness against escaping, mixed fields, and massive inputs.
 
 ---
 
 ## Public API Impact
-* **Ninguno.** No se rompe la compatibilidad pública de v2.x. La API builder estructurada tipada mantiene exactamente sus firmas previas.
+* **None.** Public compatibility of v2.x is not broken. The typed structured builder API maintains exactly its previous signatures.
 
 ---
 
@@ -48,8 +50,8 @@ Optimizar y consolidar la serialización de JSON estructurado dentro del hot pat
 
 | Command | Result | Notes |
 |---|---:|---|
-| `go test ./...` | **PASS** | Todas las pruebas pasan exitosamente. |
-| `go test -race ./...` | **PASS** | Sin data races detectados. |
+| `go test ./...` | **PASS** | All tests pass successfully. |
+| `go test -race ./...` | **PASS** | No data races detected. |
 
 ---
 
@@ -57,9 +59,9 @@ Optimizar y consolidar la serialización de JSON estructurado dentro del hot pat
 
 | Target | Result | Notes |
 |---|---:|---|
-| `FuzzJSONEncoderStringEscaping` | **PASS** | Resistencia del codificador ante escapes y control bytes. |
-| `FuzzJSONEncoderBuilderMixedFields` | **PASS** | Comportamiento seguro ante diferentes combinaciones. |
-| `FuzzJSONEncoderLargePayload` | **PASS** | Conformance de validez JSON ante payloads masivos de hasta 16KB. |
+| `FuzzJSONEncoderStringEscaping` | **PASS** | Encoder resilience against escaping and control bytes. |
+| `FuzzJSONEncoderBuilderMixedFields` | **PASS** | Safe behavior under different combinations. |
+| `FuzzJSONEncoderLargePayload` | **PASS** | JSON validity conformance under massive payloads up to 16KB. |
 
 ---
 
@@ -68,54 +70,54 @@ Optimizar y consolidar la serialización de JSON estructurado dentro del hot pat
 ### GOMAXPROCS=1
 | Benchmark | ns/op | B/op | allocs/op | Compared To | Notes |
 |---|---:|---:|---:|---|---|
-| `BenchmarkJSONEncoderDisabledLevel` | 19.3 ns | 0 B | 0 | `Fase 02` | Sin alocaciones |
-| `BenchmarkJSONEncoderBuilderSmall` | 723.4 ns | 292 B | 1 | `Fase 02` | Retorno rápido |
-| `BenchmarkJSONEncoderBuilderMixed` | 770.0 ns | 255 B | 1 | `Fase 02` | Mantiene alocación única |
-| `BenchmarkJSONEncoderBuilder1KB` | 13552 ns | 17273 B | 4 | `Fase 02 (10 allocs)` | Reducción de alocaciones |
-| `BenchmarkJSONEncoderBuilder4KB` | 48593 ns | 76137 B | 6 | - | Deuda de pre-alocación |
-| `BenchmarkJSONEncoderBuilder8KB` | 132953 ns | 151260 B | 7 | - | Deuda de pre-alocación |
+| `BenchmarkJSONEncoderDisabledLevel` | 19.3 ns | 0 B | 0 | `Phase 02` | No allocations |
+| `BenchmarkJSONEncoderBuilderSmall` | 723.4 ns | 292 B | 1 | `Phase 02` | Fast return |
+| `BenchmarkJSONEncoderBuilderMixed` | 770.0 ns | 255 B | 1 | `Phase 02` | Maintains single allocation |
+| `BenchmarkJSONEncoderBuilder1KB` | 13552 ns | 17273 B | 4 | `Phase 02 (10 allocs)` | Allocation reduction |
+| `BenchmarkJSONEncoderBuilder4KB` | 48593 ns | 76137 B | 6 | - | Pre-allocation debt |
+| `BenchmarkJSONEncoderBuilder8KB` | 132953 ns | 151260 B | 7 | - | Pre-allocation debt |
 
 ### GOMAXPROCS=2
 | Benchmark | ns/op | B/op | allocs/op | Compared To | Notes |
 |---|---:|---:|---:|---|---|
-| `BenchmarkJSONEncoderDisabledLevel` | 23.3 ns | 0 B | 0 | `Fase 02` | Descarte ultra rápido |
-| `BenchmarkJSONEncoderBuilderSmall` | 701.3 ns | 271 B | 1 | `Fase 02` | Alocación de sync.Pool interface |
-| `BenchmarkJSONEncoderBuilderMixed` | 734.9 ns | 272 B | 1 | `Fase 02` | 1 alloc única |
-| `BenchmarkJSONEncoderBuilder1KB` | 13884 ns | 9771 B | 4 | `Fase 02 (10 allocs)` | 2.5x reducción de alocaciones |
-| `BenchmarkJSONEncoderBuilder4KB` | 57420 ns | 77950 B | 6 | - | Crecimiento controlado |
-| `BenchmarkJSONEncoderBuilder8KB` | 162102 ns | 153884 B | 7 | - | Crecimiento controlado |
+| `BenchmarkJSONEncoderDisabledLevel` | 23.3 ns | 0 B | 0 | `Phase 02` | Ultra-fast discard |
+| `BenchmarkJSONEncoderBuilderSmall` | 701.3 ns | 271 B | 1 | `Phase 02` | sync.Pool interface allocation |
+| `BenchmarkJSONEncoderBuilderMixed` | 734.9 ns | 272 B | 1 | `Phase 02` | 1 single alloc |
+| `BenchmarkJSONEncoderBuilder1KB` | 13884 ns | 9771 B | 4 | `Phase 02 (10 allocs)` | 2.5x allocation reduction |
+| `BenchmarkJSONEncoderBuilder4KB` | 57420 ns | 77950 B | 6 | - | Controlled growth |
+| `BenchmarkJSONEncoderBuilder8KB` | 162102 ns | 153884 B | 7 | - | Controlled growth |
 
 ---
 
 ## 1KB / Large Payload Analysis
 
-Comparación directa en `BenchmarkJSONEncoderBuilder1KB` (Fase 02 vs Fase 03):
+Direct comparison in `BenchmarkJSONEncoderBuilder1KB` (Phase 02 vs Phase 03):
 
-| Fase | Latencia (ns/op) | Alocaciones (allocs/op) | Consumo Memoria (B/op) |
+| Phase | Latency (ns/op) | Allocations (allocs/op) | Memory Consumption (B/op) |
 |---|---:|---:|---:|
-| **Fase 02** (Append clásico de Go) | ~16,588 ns | 10 | ~31,817 B |
-| **Fase 03** (Encoder Pooling Append-only) | **~13,884 ns** | **4** | **~9,771 B** |
-| **Mejora** | **16% de aceleración** | **60% menos alocaciones** | **69% menos uso de memoria** |
+| **Phase 02** (Classic Go append) | ~16,588 ns | 10 | ~31,817 B |
+| **Phase 03** (Append-only Encoder Pooling) | **~13,884 ns** | **4** | **~9,771 B** |
+| **Improvement** | **16% speedup** | **60% fewer allocations** | **69% memory usage reduction** |
 
-*Nota:* Las 4 alocaciones en el caso de 1KB se derivan de la interfaz retornada al extraer búferes de los buckets del pool en los saltos de crecimiento. Sin embargo, el consumo en bytes disminuyó 3.2x debido a la reutilización inmediata de la memoria liberada por los búferes viejos.
+*Note:* The 4 allocations in the 1KB case derive from the interface returned when retrieving buffers from the pool buckets during capacity jumps. However, byte consumption decreased 3.2x due to the immediate reuse of memory released by the old buffers.
 
 ---
 
 ## pprof Summary
-El análisis del perfilador de CPU para el benchmark de 1KB indica que:
-* Las operaciones de copia y movimiento de bytes (`runtime.memmove`) consumen el 19.66% de CPU total.
-* La serialización de strings y caracteres especiales (`escapeJSONInto`) representa el 19.26% de CPU.
-* El gestor de capacidad y re-pooling de búferes (`ensureJSONCapacity`) consume el 9.13% de la CPU.
-* El resto de la CPU se distribuye en operaciones de recolección (`runtime.scanobject` y `runtime.mallocgc`) derivadas de la contención por el tipo genérico de retorno de `sync.Pool`.
+The CPU profiler analysis for the 1KB benchmark indicates that:
+* Copy and byte-moving operations (`runtime.memmove`) consume 19.66% of total CPU.
+* Serialization of strings and special characters (`escapeJSONInto`) represents 19.26% of CPU.
+* Capacity management and buffer re-pooling (`ensureJSONCapacity`) consumes 9.13% of CPU.
+* The rest of the CPU is distributed across collection operations (`runtime.scanobject` and `runtime.mallocgc`) arising from contention over the generic return type of `sync.Pool`.
 
 ---
 
 ## Hot Path Restrictions Check
-El hot path del nuevo encoder/builder estructurado tipado:
-* **¿Utiliza reflect?** **NO**.
-* **¿Utiliza fmt.Sprint/fmt.Sprintf?** **NO**.
-* **¿Utiliza encoding/json.Marshal?** **NO**.
-* **¿Utiliza map[string]interface{}?** **NO**.
+The hot path of the new typed structured encoder/builder:
+* **Does it use reflect?** **NO**.
+* **Does it use fmt.Sprint/fmt.Sprintf?** **NO**.
+* **Does it use encoding/json.Marshal?** **NO**.
+* **Does it use map[string]interface{}?** **NO**.
 
 ---
 
@@ -123,16 +125,16 @@ El hot path del nuevo encoder/builder estructurado tipado:
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| Encoder estructurado manual integrado | **CUMPLIDO** | Métodos optimizados implementados en `acacia.go`. |
-| Disabled level en 0 allocs/op | **CUMPLIDO** | `BenchmarkJSONEncoderDisabledLevel` reporta 0 allocs/op. |
-| Small/Mixed builder en <= 1 alloc/op | **CUMPLIDO** | Ambos reportan exactamente 1 alloc/op. |
-| Reducción drástica de alocaciones en 1KB | **CUMPLIDO** | Alocaciones reducidas de 10 a 4, y memoria reducida en un 69%. |
-| Ausencia de regresiones de fuzzing y JSON | **CUMPLIDO** | Todos los fuzz targets y unit tests pasan en verde. |
+| Manual structured encoder integrated | **FULFILLED** | Optimized methods implemented in `acacia.go`. |
+| Disabled level at 0 allocs/op | **FULFILLED** | `BenchmarkJSONEncoderDisabledLevel` reports 0 allocs/op. |
+| Small/Mixed builder at <= 1 alloc/op | **FULFILLED** | Both report exactly 1 alloc/op. |
+| Drastic allocation reduction in 1KB | **FULFILLED** | Allocations reduced from 10 to 4, and memory reduced by 69%. |
+| Absence of fuzzing and JSON regressions | **FULFILLED** | All fuzz targets and unit tests pass successfully. |
 
 ---
 
 ## Risks / Regressions
-* **Boxing en sync.Pool:** A pesar de reutilizar los búferes con éxito, las type assertions requeridas al invocar `sync.Pool.Get()` continúan generando alocaciones de control en el Heap (1 alocación por salto de capacidad). Este comportamiento se refinará mediante estructuración por valor o thread-local buffers en la Fase 05.
+* **Boxing in sync.Pool:** Despite successfully reusing buffers, the type assertions required when invoking `sync.Pool.Get()` continue to generate control allocations on the Heap (1 allocation per capacity jump). This behavior will be refined through struct-by-value or thread-local buffers in Phase 05.
 
 ---
 
@@ -147,4 +149,4 @@ El hot path del nuevo encoder/builder estructurado tipado:
 ---
 
 ## Next Phase Recommendation
-Se recomienda avanzar a la **Fase 04 — Redacción y seguridad de datos sensibles** para diseñar e integrar un sistema de redacción zero-allocation y no reflectivo que sustituya la denegación reflectiva del wrapper actual, mitigando los cuellos de botella de la auditoría.
+It is recommended to proceed to **Phase 04 — Redaction and Sensitive Data Security** to design and integrate a zero-allocation, non-reflective redaction system that replaces the reflective denial of the current wrapper, mitigating auditing bottlenecks.

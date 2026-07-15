@@ -1,46 +1,46 @@
-# Runbook de Preparación para Release (Release Readiness Runbook)
+# Release Readiness Runbook
 
-Este runbook detalla los pasos de verificación obligatorios a realizar antes de etiquetar y liberar una nueva versión de Acacia.
+This runbook outlines the validation steps to perform before tagging and releasing a new version of Acacia.
 
 ---
 
-## 1. Verificaciones del Core y Pruebas
-1. **Tests Unitarios Completos:**
-   Todos los tests en todos los paquetes deben estar en verde:
+## 1. Core and Concurrency Checks
+1. **Unit Tests:**
+   All package tests must pass:
    ```bash
    go test -v ./...
    ```
 2. **Race Detector:**
-   No debe reportarse ninguna alerta de concurrencia:
+   No race warnings must be reported:
    ```bash
    go test -race ./...
    ```
 
 ---
 
-## 2. Auditoría de Rendimiento (Límite Zero-Allocation)
-1. **Validación de Allocations:**
-   Ejecuta la suite completa de benchmarks y comprueba que:
-   * Las funciones de fast path (`Info`, `Warn` con strings y `[]byte`) reportan **0 allocs/op**.
-   * La Fluent API (Builder) reporta **0 allocs/op** en su uso base.
-2. **Comparativa frente a Baseline:**
-   Compara los tiempos de ejecución de la nueva versión contra la anterior para descartar regresiones de latencia superiores al 5%.
+## 2. Performance Verification (Allocation Checks)
+1. **Verify Allocations:**
+   Run the benchmark suite and confirm that:
+   * String and byte direct paths report **0 allocs/op**.
+   * Fluent API builders maintain low-allocation behavior as documented.
+2. **Baseline Comparison:**
+   Compare benchmark metrics against the baseline version to check for latencies or memory regressions.
 
 ---
 
-## 3. Lista de Chequeo de Seguridad
-* **Sanitización de Retornos de Línea:** Verificar que el codificador JSON reemplace o escape los caracteres `\n` y `\r` para evitar Log Injection.
-* **Permisos del Filesystem:** Confirmar que los archivos de logs creados por rotación o arranque sigan la máscara restrictiva `0600`.
-* **Path Traversal:** Comprobar que los nombres de archivos pasados al logger no admitan secuencias `../` ni caracteres especiales que alteren directorios externos.
+## 3. Security Checklist
+* **JSON Escaping:** Verify that the JSON encoder escapes `\n`, `\r`, and control characters to prevent log injection.
+* **File Permissions:** Verify that newly created log files default to restricted `0600` owner permissions.
+* **Path Traversal:** Verify that log filenames block directory traversal sequences (e.g. `../`).
 
 ---
 
-## 4. Validación de Limpieza y Exclusión de Datos
-Antes de realizar el tag y push definitivo:
-1. Asegura que no existan perfiles `.pprof` ni reportes privados bajo tracking ejecutando:
+## 4. Sanitation and Excluded Data Check
+Before tagging and pushing the release:
+1. Ensure no `.pprof` files or private reports are tracked:
    ```bash
    git ls-files .private docs/private reports/private
    ```
-   *Debe resultar en una lista vacía.*
-2. Comprobar que no haya comentarios `TODO` o notas en el código que apunten a URLs locales o IPs del entorno privado de desarrollo.
-3. Generar el reporte público final de la versión y actualizar el CHANGELOG en el `README.md`.
+   *This command must output nothing.*
+2. Check that no source code comments or documentation references local URLs, IP addresses, or internal development directories.
+3. Generate the final public validation report and update `CHANGELOG.md` and `RELEASE_NOTES.md`.

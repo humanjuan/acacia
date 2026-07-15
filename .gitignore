@@ -20,7 +20,7 @@ cpu.out
 mem.out
 mutex.out
 block.out
-bench.out
-bench-*.txt
-stress.out
+*.out
+*.log
 fuzz-artifacts/
+test/testdata/fuzz/

@@ -1,55 +1,57 @@
-# Reporte de Fase 00: Organización del Repositorio
+# Phase 00 Report: Repository Organization
 
-* **Fecha:** 2026-07-06
-* **Rama:** `dev`
-* **Commit Relacionado:** (Pendiente de commit)
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
+* **Date:** 2026-07-06
+* **Branch:** `dev`
+* **Related Commit:** (Pending commit)
 * **Go Version:** go1.23.2 darwin/amd64
 * **OS/Arch:** Darwin (macOS/amd64)
 
 ---
 
-## 1. Estado Inicial Resumido
-El repositorio de Acacia (v2.3.1) carecía de una separación estructurada entre documentación pública de diseño y evidencias privadas de rendimiento generadas localmente (pprof, bench.out). Se detectaron archivos de perfil `.pprof` sueltos en el directorio `test/` sin exclusión en `.gitignore`, lo que representaba un riesgo de fuga de datos de rutas locales absolutas.
+## 1. Summary of Initial State
+The Acacia repository (v2.3.1) lacked a structured separation between public design documentation and private, locally generated performance evidence (pprof, bench.out). Loose `.pprof` profile files were detected in the `test/` directory without exclusion in `.gitignore`, presenting a risk of leaking local absolute path data.
 
 ---
 
-## 2. Archivos y Rutas Modificados/Creados
+## 2. Modified/Created Files and Paths
 
-### Rutas Públicas Creadas (`docs/`)
-* [docs/README.md](../README.md): Índice principal de documentación técnica.
-* [docs/ACACIA_PROJECT_CONTEXT.md](../ACACIA_PROJECT_CONTEXT.md): Contexto operativo público para agentes AI y continuidad entre sesiones.
-* [docs/PUBLIC_PRIVATE_DOCUMENTATION_POLICY.md](../PUBLIC_PRIVATE_DOCUMENTATION_POLICY.md): Reglas de clasificación y exclusión de datos.
-* [docs/ACACIA_IMPROVEMENT_ROADMAP.md](../ACACIA_IMPROVEMENT_ROADMAP.md): Plan de mejora detallado en 9 fases.
-* [docs/TESTING_AND_BENCHMARKING.md](../TESTING_AND_BENCHMARKING.md): Runbook de comandos oficiales de pruebas y benchmarking.
-* [docs/SECURITY_HARDENING_PLAN.md](../SECURITY_HARDENING_PLAN.md): Plan de hardening frente a inyecciones de logs y traversals.
-* [docs/PERFORMANCE_ENGINEERING_PLAN.md](../PERFORMANCE_ENGINEERING_PLAN.md): Estrategia de optimización a Zero-Allocation.
-* [docs/MIGRATION_STRATEGY.md](../MIGRATION_STRATEGY.md): Plan de compatibilidad para clientes de Acacia.
-* [docs/REPORTING_GUIDE.md](../REPORTING_GUIDE.md): Directrices de escritura de reportes públicos y evidencias.
-* [docs/adr/0001-public-private-documentation-boundary.md](../adr/0001-public-private-documentation-boundary.md): ADR justificando la separación de carpetas.
-* [docs/adr/0002-performance-claims-must-be-reproducible.md](../adr/0002-performance-claims-must-be-reproducible.md): ADR justificando la reproducibilidad de benchmarks.
-* [docs/reports/README.md](README.md): Explicación del sistema de reportes.
-* [docs/reports/phase-00-repo-organization-report.md](phase-00-repo-organization-report.md): Este reporte.
-* [docs/templates/public-phase-report.template.md](../templates/public-phase-report.template.md): Plantilla de reporte público.
-* [docs/templates/private-evidence-report.template.md](../templates/private-evidence-report.template.md): Plantilla de evidencia privada local.
-* [docs/templates/benchmark-summary.template.md](../templates/benchmark-summary.template.md): Plantilla para tablas de benchmarks.
-* [docs/templates/security-finding.template.md](../templates/security-finding.template.md): Plantilla para reporte de vulnerabilidades.
-* [docs/runbooks/local-audit-runbook.md](../runbooks/local-audit-runbook.md): Guía paso a paso para auditorías locales de desarrolladores.
-* [docs/runbooks/release-readiness-runbook.md](../runbooks/release-readiness-runbook.md): Lista de verificación para releases seguros.
-* [Makefile](../../Makefile): Automatizador de pruebas locales.
+### Public Paths Created (`docs/`)
+* [docs/README.md](../README.md): Main index for technical documentation.
+* [docs/ACACIA_PROJECT_CONTEXT.md](../ACACIA_PROJECT_CONTEXT.md): Public operational context for AI agents and session continuity.
+* [docs/PUBLIC_PRIVATE_DOCUMENTATION_POLICY.md](../policies/PUBLIC_PRIVATE_DOCUMENTATION_POLICY.md): Rules for classification and exclusion of data.
+* [docs/ACACIA_IMPROVEMENT_ROADMAP.md](../plans/roadmap.md): Detailed improvement plan in 9 phases.
+* [docs/TESTING_AND_BENCHMARKING.md](../policies/TESTING_AND_BENCHMARKING.md): Runbook for official testing and benchmarking commands.
+* [docs/SECURITY_HARDENING_PLAN.md](../plans/security-hardening.md): Hardening plan against log injection and path traversal.
+* [docs/PERFORMANCE_ENGINEERING_PLAN.md](../plans/performance-engineering.md): Optimization strategy to Zero-Allocation.
+* [docs/MIGRATION_STRATEGY.md](../MIGRATION_STRATEGY.md): Compatibility plan for Acacia clients.
+* [docs/REPORTING_GUIDE.md](../policies/REPORTING_GUIDE.md): Guidelines for writing public reports and evidence.
+* [docs/adr/0001-public-private-documentation-boundary.md](../adr/0001-public-private-documentation-boundary.md): ADR justifying the folder separation.
+* [docs/adr/0002-performance-claims-must-be-reproducible.md](../adr/0002-performance-claims-must-be-reproducible.md): ADR justifying the reproducibility of benchmarks.
+* [docs/reports/README.md](README.md): Explanation of the reporting system.
+* [docs/reports/phase-00-repo-organization-report.md](phase-00-repo-organization-report.md): This report.
+* [docs/templates/public-phase-report.template.md](../templates/public-phase-report.template.md): Public phase report template.
+* [docs/templates/private-evidence-report.template.md](../templates/private-evidence-report.template.md): Local private evidence template.
+* [docs/templates/benchmark-summary.template.md](../templates/benchmark-summary.template.md): Template for benchmark tables.
+* [docs/templates/security-finding.template.md](../templates/security-finding.template.md): Template for vulnerability reports.
+* [docs/runbooks/local-audit-runbook.md](../runbooks/local-audit-runbook.md): Step-by-step guide for local developer audits.
+* [docs/runbooks/release-readiness-runbook.md](../runbooks/release-readiness-runbook.md): Checklist for secure releases.
+* [Makefile](../../Makefile): Local test automator.
 
-### Rutas Privadas Creadas (Locales e Ignoradas)
-* `.private/` (Estructurada con subdirectorios `audits/`, `reports/`, `evidence/`, `pprof/`, `bench/`, `fuzz/`, `stress/`, `tmp/`).
-* `.private/README.md`: Indicación para desarrolladores de no subir esta carpeta a Git.
-* `.private/reports/phase-00-private-evidence.md`: Reporte de evidencia privado de fase 00.
-
----
-
-## 3. Cambios en `.gitignore`
-Se actualizó el archivo [.gitignore](../../.gitignore) agregando reglas estrictas para omitir carpetas privadas locales y extensiones de archivos binarios e intermedios generados por Go testing/profiling (`.pprof`, `.prof`, `.trace`, `.coverprofile`, `.test`, etc.).
+### Private Paths Created (Local and Ignored)
+* `.private/` (Structured with subdirectories `audits/`, `reports/`, `evidence/`, `pprof/`, `bench/`, `fuzz/`, `stress/`, `tmp/`).
+* `.private/README.md`: Instruction for developers to not commit this folder to Git.
+* `.private/reports/phase-00-private-evidence.md`: Private evidence report for Phase 00.
 
 ---
 
-## 4. Comandos Ejecutados
+## 3. Changes in `.gitignore`
+The [.gitignore](../../.gitignore) file was updated, adding strict rules to omit local private folders and extensions of binary and intermediate files generated by Go testing/profiling (`.pprof`, `.prof`, `.trace`, `.coverprofile`, `.test`, etc.).
+
+---
+
+## 4. Commands Executed
 ```bash
 # Crear estructura de carpetas privadas locales
 mkdir -p .private/audits .private/reports .private/evidence .private/pprof .private/bench .private/fuzz .private/stress .private/tmp
@@ -60,17 +62,17 @@ mv test/vector*_*.pprof .private/pprof/
 
 ---
 
-## 5. Resultados de las Validaciones
+## 5. Validation Results
 
-### Validación de Exclusión de Git (`git check-ignore`)
-Ejecutando la verificación sobre la carpeta privada:
+### Git Exclusion Validation (`git check-ignore`)
+Running the verification on the private folder:
 ```bash
 git check-ignore -v .private/README.md
 # Salida esperada: .gitignore:9:.private/	.private/README.md
 ```
-Se confirma que los archivos privados quedan correctamente ignorados.
+It is confirmed that private files are correctly ignored.
 
-### Estado de Git (`git status --short`)
+### Git Status (`git status --short`)
 ```bash
  M .gitignore
  M acacia.go
@@ -79,9 +81,9 @@ Se confirma que los archivos privados quedan correctamente ignorados.
 ?? internal/
 ?? test/stress_vectors_test.go
 ```
-*Nota: La carpeta `.private/` y los perfiles `.pprof` no se muestran en el listado de archivos untracked, validando la política de exclusión.*
+*Note: The `.private/` folder and `.pprof` profiles do not appear in the untracked files list, validating the exclusion policy.*
 
-### Listado de Archivos en Rutas Privadas (`git ls-files`)
+### List of Files in Private Paths (`git ls-files`)
 ```bash
 git ls-files .private docs/private reports/private
 # Salida vacía (ningún archivo privado trackeado)
@@ -89,27 +91,27 @@ git ls-files .private docs/private reports/private
 
 ---
 
-## 6. Riesgos Detectados
-* **Riesgo de Modificación Involuntaria de .gitignore:** Si un colaborador edita el `.gitignore` raíz, se podría forzar el tracking de `.private/`.
-* **Archivos Privados Preexistentes:** Se verificó exhaustivamente con `git ls-files` y no se encontraron archivos binarios o privados previamente confirmados en el historial de Git de esta rama.
+## 6. Risks Detected
+* **Risk of Inadvertent Modifications to .gitignore:** If a collaborator edits the root `.gitignore`, it could force tracking of `.private/`.
+* **Pre-existing Private Files:** A thorough check with `git ls-files` was conducted, and no binary or private files previously committed to the Git history of this branch were found.
 
 ---
 
-## 7. Validación de Alcance del Commit
-El commit final de esta Fase 00 será de carácter **estrictamente documental y de configuración del repositorio**. Se excluyen de este commit los cambios realizados en el núcleo del logger (`acacia.go`), el paquete `internal/` (wrapper de redacción) y el archivo de pruebas `test/stress_vectors_test.go`, los cuales han sido creados con fines experimentales en local y serán integrados de forma ordenada y bajo una rama o commit separado en las fases correspondientes (Fase 01 y Fase 02).
+## 7. Commit Scope Validation
+The final commit of this Phase 00 will be **strictly documentary and repository configuration in nature**. Changes made in the logger core (`acacia.go`), the `internal/` package (redaction wrapper), and the test file `test/stress_vectors_test.go` are excluded from this commit. These files were created for local experimental purposes and will be integrated in an orderly fashion under a separate branch or commit in their corresponding phases (Phase 01 and Phase 02).
 
-### Archivos recomendados para entrar en el commit de la Fase 00:
+### Files recommended to be included in the Phase 00 commit:
 * `.gitignore`
 * `Makefile`
-* `docs/` (toda la estructura de documentación pública creada)
+* `docs/` (all created public documentation structure)
 
-### Archivos NO recomendados para este commit (deben mantenerse sin stagear):
-* `acacia.go` (modificado localmente para soporte de descarte experimental)
-* `internal/logging/wrapper.go` (wrapper experimental de redacción)
-* `test/stress_vectors_test.go` (pruebas de estrés locales)
+### Files NOT recommended for this commit (must remain unstaged):
+* `acacia.go` (locally modified for experimental drop support)
+* `internal/logging/wrapper.go` (experimental redaction wrapper)
+* `test/stress_vectors_test.go` (local stress tests)
 
 ---
 
-## 8. Próximos Pasos
-1. Consolidar el mensaje de commit de fase 00.
-2. Iniciar la **Fase 01 - Baseline Reproducible** para obtener los resultados estables de rendimiento de la versión actual.
+## 8. Next Steps
+1. Consolidate the Phase 00 commit message.
+2. Start **Phase 01 - Reproducible Baseline** to obtain stable performance results for the current version.

@@ -1,141 +1,143 @@
 # Phase 05 — Backpressure, Queue, and Memory Optimization Report
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 * **Date:** 2026-07-08
 * **Branch:** `dev`
 * **Commit:** `feat: add sensitive data redaction for structured events`
 * **Go version:** `go1.23.2`
 * **OS/Arch:** `darwin/amd64`
-* **Scope:** Diseño, integración y optimización de políticas de backpressure/descarte de colas, telemetría thread-safe y eliminación de alocaciones redundantes bajo saturación (evitando el "engaño del drop").
+* **Scope:** Design, integration, and optimization of backpressure/queue dropping policies, thread-safe telemetry, and elimination of redundant allocations under saturation (avoiding the "drop illusion").
 
 ---
 
 ## Documents Reviewed
-Durante el inicio y transcurso de esta fase, se revisó y analizó el cuerpo documental del proyecto para alineación de diseño:
-* **docs/ACACIA_PROJECT_CONTEXT.md**: Comprobación del alcance operacional e hitos del proyecto.
-* **docs/ACACIA_IMPROVEMENT_ROADMAP.md**: Inspección de los requerimientos específicos de backpressure/descarte y el uso de canales.
-* **docs/TESTING_AND_BENCHMARKING.md**: Guía sobre la estabilidad y reproducibilidad de los benchmarks con count=10.
-* **docs/SECURITY_HARDENING_PLAN.md**: Verificación de que las nuevas políticas no alteren ni inyecten caracteres de control o comprometan la seguridad.
-* **docs/PUBLIC_PRIVATE_DOCUMENTATION_POLICY.md**: Política estricta de exclusión de rutas locales y versionado seguro.
-* **docs/REPORTING_GUIDE.md**: Estructura requerida para los reportes públicos de cierre de fase.
-* **docs/PERFORMANCE_ENGINEERING_PLAN.md**: Directrices para reducir allocations a 0 B/op en caminos calientes y saturados.
-* **docs/MIGRATION_STRATEGY.md**: Principio de no ruptura de compatibilidad y preservación de defaults.
-* **observability_audit.md**: Detalla la auditoría original donde se identificó que el descarte tardío ("el engaño del drop") generaba un 52.5% de CPU en `mallocgc` y las colas grandes (500k) de struct ocupaban 35MB estáticos de memoria inicial.
-* **docs/reports/phase-01-baseline-report.md**, **phase-02-typed-api-report.md**, **phase-03-json-encoder-report.md**, **phase-04-redaction-security-report.md**: Utilizados para validar la evolución de allocations en el hot path.
+At the beginning and during this phase, the project's documentation body was reviewed and analyzed for design alignment:
+* **docs/ACACIA_PROJECT_CONTEXT.md**: Verification of operational scope and project milestones.
+* **docs/ACACIA_IMPROVEMENT_ROADMAP.md**: Inspection of specific backpressure/drop requirements and the use of channels.
+* **docs/TESTING_AND_BENCHMARKING.md**: Guide on the stability and reproducibility of benchmarks with count=10.
+* **docs/SECURITY_HARDENING_PLAN.md**: Verification that new policies do not alter or inject control characters or compromise security.
+* **docs/PUBLIC_PRIVATE_DOCUMENTATION_POLICY.md**: Strict policy excluding local paths and ensuring secure versioning.
+* **docs/REPORTING_GUIDE.md**: Required structure for public phase closure reports.
+* **docs/PERFORMANCE_ENGINEERING_PLAN.md**: Guidelines to reduce allocations to 0 B/op in hot and saturated paths.
+* **docs/MIGRATION_STRATEGY.md**: Principle of non-breaking compatibility and preservation of defaults.
+* **observability_audit.md**: Details the original audit where it was identified that late dropping ("the drop illusion") generated 52.5% CPU in `mallocgc` and large struct queues (500k) occupied 35MB of static initial memory.
+* **docs/reports/phase-01-baseline-report.md**, **phase-02-typed-api-report.md**, **phase-03-json-encoder-report.md**, **phase-04-redaction-security-report.md**: Used to validate the evolution of allocations in the hot path.
 
 ---
 
 ## Backpressure Policy Design
-Se implementaron e integraron las siguientes políticas de backpressure en Acacia:
-1. **BlockOnFull (Predeterminado Histórico):**
-   * **Compatibilidad histórica:** El logger legacy original de Acacia bloquea al productor si la cola está llena. Para asegurar total compatibilidad con clientes existentes y evitar rupturas operativas imprevistas en producción, se ha mantenido `BlockOnFull` como la política predeterminada de Acacia.
-   * **Comportamiento:** Si la cola está llena, el productor bloquea de forma síncrona en el canal de eventos hasta que se libere espacio.
+The following backpressure policies were implemented and integrated into Acacia:
+1. **BlockOnFull (Historical Default):**
+   * **Historical compatibility:** The original legacy Acacia logger blocks the producer if the queue is full. To ensure total compatibility with existing clients and prevent unforeseen operational disruptions in production, `BlockOnFull` has been kept as the default policy for Acacia.
+   * **Behavior:** If the queue is full, the producer blocks synchronously on the event channel until space becomes available.
 2. **DropNewest:**
-   * **Comportamiento:** Si la cola está llena, se descarta el nuevo evento log entrante de forma inmediata y no bloqueante.
+   * **Behavior:** If the queue is full, the new incoming log event is discarded immediately and in a non-blocking manner.
 3. **DropOldest:**
-   * **Comportamiento:** Si la cola está llena, se expulsa el evento de log más antiguo del canal `_log.events` de forma no bloqueante para hacer espacio al nuevo evento.
-   * **Limitaciones:** Está limitado a la capacidad concurrente. Si la ranura de cola liberada es inmediatamente ocupada por otra goroutine competidora antes de que el evento actual pueda encolarse, este se descarta para evitar bloqueos del sistema.
+   * **Behavior:** If the queue is full, the oldest log event is evicted from the `_log.events` channel in a non-blocking manner to make room for the new event.
+   * **Limitations:** It is limited to concurrent capacity. If the freed queue slot is immediately occupied by another competing goroutine before the current event can be enqueued, the event is dropped to prevent system lockups.
 4. **DropDebugOnly:**
-   * **Comportamiento:** Si la cola está llena y el evento es de nivel `DEBUG` o `INFO`, se descarta de inmediato para aliviar la saturación. Si el evento es de nivel `WARN`, `ERROR` o `CRITICAL`, se aplica el comportamiento de `BlockOnFull` (bloqueante) para garantizar que los logs críticos de producción nunca se pierdan bajo saturación.
+   * **Behavior:** If the queue is full and the event is of `DEBUG` or `INFO` level, it is discarded immediately to relieve saturation. If the event is of `WARN`, `ERROR`, or `CRITICAL` level, the `BlockOnFull` (blocking) behavior is applied to guarantee that critical production logs are never lost under saturation.
 
 ---
 
 ## Metrics Added
-Se integró una estructura de telemetría de cola atómica y segura para hilos (`Stats`) accesible sin allocations:
-* **EnqueuedTotal:** Total de eventos que fueron aceptados con éxito en la cola de escritura.
-* **WrittenTotal:** Total de eventos de log que el escritor asíncrono ha escrito físicamente en disco.
-* **DroppedTotal:** Total de eventos de log que han sido descartados debido a saturación y a la política de backpressure activa.
-* **QueueLen / QueueCap:** Longitud actual de ocupación y capacidad máxima de la cola.
-* **WriteErrorsTotal:** Total de errores de escritura física (I/O) en disco.
-* **RotationErrorsTotal:** Total de errores al intentar renombrar o crear archivos durante rotaciones diarias o por tamaño.
+A thread-safe atomic queue telemetry structure (`Stats`) accessible without allocations was integrated:
+* **EnqueuedTotal:** Total events that were successfully accepted into the write queue.
+* **WrittenTotal:** Total log events that the asynchronous writer has physically written to disk.
+* **DroppedTotal:** Total log events that have been dropped due to saturation and the active backpressure policy.
+* **QueueLen / QueueCap:** Current queue occupancy length and maximum queue capacity.
+* **WriteErrorsTotal:** Total physical write errors (I/O) to disk.
+* **RotationErrorsTotal:** Total errors when attempting to rename or create files during daily or size-based rotations.
 
 ---
 
 ## Control Event Safety
-* **Seguridad de eventos de control:** Las llamadas críticas del sistema como `Sync()` y `Close()`, así como los cambios de rotación en caliente, se enrutan exclusivamente a través del canal dedicado `_log.control` en lugar de mezclarse en el canal `_log.events`.
-* **Garantía ante descartes:** Dado que las políticas de drop (`DropNewest`, `DropOldest`, `DropDebugOnly`) actúan de forma estricta y exclusiva sobre la cola `_log.events`, los mensajes de control de infraestructura nunca pueden ser descartados.
-* **Sincronización robusta:** La sincronización toma un snapshot de `enqueuedSeq` y el escritor drena el canal hasta ese índice exacto antes de dar `ack`, lo que previene deadlocks bajo descarte concurrente de logs.
+* **Control event safety:** Critical system calls such as `Sync()` and `Close()`, as well as hot rotation changes, are routed exclusively through the dedicated `_log.control` channel instead of being mixed into the `_log.events` channel.
+* **Guarantee under drops:** Since drop policies (`DropNewest`, `DropOldest`, `DropDebugOnly`) act strictly and exclusively on the `_log.events` queue, infrastructure control messages can never be dropped.
+* **Robust synchronization:** Synchronization takes a snapshot of `enqueuedSeq` and the writer drains the channel up to that exact index before sending an `ack`, preventing deadlocks under concurrent log dropping.
 
 ---
 
 ## Pre-Drop Work Reduction
-Para mitigar las alocaciones inútiles en el builder estructurado tipado bajo descarte ("el engaño del drop"), se integró una optimización de "comprobación previa al drop" (pre-drop check) en `NewEvent(level)`:
-* Si la política es `DropNewest` o `DropDebugOnly` y `len(events) >= cap(events)`, se comprueba si el evento califica para drop antes de reservar buffers o estructuras del pool.
-* Si califica, se incrementa de inmediato `droppedSeq` y se retorna `nil`.
-* Los métodos encadenados posteriores (`Str`, `Int`, `Send`, `Msg`) cortocircuitan al instante al recibir `nil`.
-* **Path que evita trabajo:** El hot path de la API estructurada tipada (`Event`).
-* **Deuda legacy:** El path legacy `Log.Info(map[string]interface{})` aún requiere allocations iniciales debido al boxing de interfaces y a la conversión a mapas antes de encolar. Esto se mantiene como deuda técnica controlada a extinguir en v3.
+To mitigate useless allocations in the typed structured builder under dropping ("the drop illusion"), a "pre-drop check" optimization was integrated into `NewEvent(level)`:
+* If the policy is `DropNewest` or `DropDebugOnly` and `len(events) >= cap(events)`, a check is performed to see if the event qualifies for dropping before reserving buffers or pool structures.
+* If it qualifies, `droppedSeq` is incremented immediately and `nil` is returned.
+* Subsequent chained methods (`Str`, `Int`, `Send`, `Msg`) short-circuit instantly upon receiving `nil`.
+* **Path avoiding work:** The hot path of the typed structured API (`Event`).
+* **Legacy debt:** The legacy path `Log.Info(map[string]interface{})` still requires initial allocations due to interface boxing and conversion to maps before enqueuing. This remains as controlled technical debt to be eliminated in v3.
 
 ---
 
 ## Stress Test Summary
-Las pruebas de estrés concurrentes ejecutaron 64 goroutines concurrentes intentando encolar 5,000 logs cada una (un total de 320,000 logs por prueba) sobre una cola pequeña de 1,000 ranuras:
-* **Resultados:**
-  * `TestStressBackpressureDropNewest`: Procesó y descartó correctamente sin deadlocks.
-  * `TestStressBackpressureBlockOnFull`: Garantizó 0 descartes y completó todas las escrituras sin fallos de carrera.
-  * `TestStressBackpressureDropDebugOnly`: Descartó debugs pero preservó logs de error sin interrupciones.
-  * `TestStressSyncCloseUnderSaturation`: Llamadas de sincronización concurrente unbloquearon correctamente durante el apagado del escritor, garantizando drenaje seguro y robustez.
+Concurrent stress tests executed 64 concurrent goroutines attempting to enqueue 5,000 logs each (a total of 320,000 logs per test) on a small queue of 1,000 slots:
+* **Results:**
+  * `TestStressBackpressureDropNewest`: Processed and dropped correctly without deadlocks.
+  * `TestStressBackpressureBlockOnFull`: Guaranteed 0 drops and completed all writes without race failures.
+  * `TestStressBackpressureDropDebugOnly`: Dropped debugs but preserved error logs without interruptions.
+  * `TestStressSyncCloseUnderSaturation`: Concurrent synchronization calls unblocked correctly during writer shutdown, guaranteeing safe draining and robustness.
 
 ---
 
 ## Benchmark Summary
 
 ### GOMAXPROCS=1
-Métricas obtenidas con el comando: `GOMAXPROCS=1 go test ./test -bench 'Benchmark(Backpressure|Vector3Drop|EventBuilderDisabledLevel)' -benchmem -run '^$' -count=10`
+Metrics obtained with the command: `GOMAXPROCS=1 go test ./test -bench 'Benchmark(Backpressure|Vector3Drop|EventBuilderDisabledLevel)' -benchmem -run '^$' -count=10`
 
 | Benchmark | ns/op | B/op | allocs/op | Notes |
 |---|---:|---:|---:|---|
-| `BenchmarkBackpressureDropNewestFullQueue` | 37.4 ns | 0 B | 0 | Zero-allocation real |
-| `BenchmarkBackpressureBlockOnFull` | 359.3 ns | 45 B | 0 | Regulador bloqueante |
-| `BenchmarkBackpressureDropOldestFullQueue` | 143.3 ns | 2 B | 0 | Desalojo FIFO veloz |
-| `BenchmarkBackpressureDropDebugOnlyFullQueue` | 36.9 ns | 0 B | 0 | Descarte rápido de debug |
-| `BenchmarkBackpressureStats` | 4.7 ns | 0 B | 0 | Consulta stats sin allocations |
-| `BenchmarkBackpressureDropped` | 0.8 ns | 0 B | 0 | Consulta de drop simple |
-| `BenchmarkBackpressureBuilderDropNewestFullQueue` | 24.6 ns | 0 B | 0 | Pre-drop check en builder tipado |
+| `BenchmarkBackpressureDropNewestFullQueue` | 37.4 ns | 0 B | 0 | Real zero-allocation |
+| `BenchmarkBackpressureBlockOnFull` | 359.3 ns | 45 B | 0 | Blocking regulator |
+| `BenchmarkBackpressureDropOldestFullQueue` | 143.3 ns | 2 B | 0 | Fast FIFO eviction |
+| `BenchmarkBackpressureDropDebugOnlyFullQueue` | 36.9 ns | 0 B | 0 | Fast debug drop |
+| `BenchmarkBackpressureStats` | 4.7 ns | 0 B | 0 | Query stats without allocations |
+| `BenchmarkBackpressureDropped` | 0.8 ns | 0 B | 0 | Simple drop query |
+| `BenchmarkBackpressureBuilderDropNewestFullQueue` | 24.6 ns | 0 B | 0 | Pre-drop check in typed builder |
 
 ### GOMAXPROCS=2
-Métricas obtenidas con el comando: `GOMAXPROCS=2 go test ./test -bench 'Benchmark(Backpressure|Vector3Drop|EventBuilderDisabledLevel)' -benchmem -run '^$' -count=10`
+Metrics obtained with the command: `GOMAXPROCS=2 go test ./test -bench 'Benchmark(Backpressure|Vector3Drop|EventBuilderDisabledLevel)' -benchmem -run '^$' -count=10`
 
 | Benchmark | ns/op | B/op | allocs/op | Notes |
 |---|---:|---:|---:|---|
-| `BenchmarkBackpressureDropNewestFullQueue` | 91.2 ns | 120 B | 0 | Sin allocations bajo multiproceso |
-| `BenchmarkBackpressureBlockOnFull` | 218.2 ns | 3 B | 0 | Rendimiento en hilos concurrentes |
-| `BenchmarkBackpressureDropOldestFullQueue` | 212.8 ns | 205 B | 0 | Expulsión FIFO segura |
-| `BenchmarkBackpressureDropDebugOnlyFullQueue` | 85.7 ns | 125 B | 0 | Comportamiento híbrido |
-| `BenchmarkBackpressureStats` | 3.6 ns | 0 B | 0 | Telemetría rápida |
-| `BenchmarkBackpressureDropped` | 0.5 ns | 0 B | 0 | Telemetría rápida |
-| `BenchmarkBackpressureBuilderDropNewestFullQueue` | 130.0 ns | 109 B | 0 | Cortocircuito pre-drop óptimo |
+| `BenchmarkBackpressureDropNewestFullQueue` | 91.2 ns | 120 B | 0 | No allocations under multiprocessing |
+| `BenchmarkBackpressureBlockOnFull` | 218.2 ns | 3 B | 0 | Performance in concurrent threads |
+| `BenchmarkBackpressureDropOldestFullQueue` | 212.8 ns | 205 B | 0 | Safe FIFO eviction |
+| `BenchmarkBackpressureDropDebugOnlyFullQueue` | 85.7 ns | 125 B | 0 | Hybrid behavior |
+| `BenchmarkBackpressureStats` | 3.6 ns | 0 B | 0 | Fast telemetry |
+| `BenchmarkBackpressureDropped` | 0.5 ns | 0 B | 0 | Fast telemetry |
+| `BenchmarkBackpressureBuilderDropNewestFullQueue` | 130.0 ns | 109 B | 0 | Optimal pre-drop short-circuit |
 
 ---
 
 ## pprof Summary
-El análisis de perfiles CPU y de memoria con la herramienta `go tool pprof` para `BenchmarkBackpressureBuilderDropNewestFullQueue` revela que:
-* **CPU:** Bajo saturación con descarte, la CPU consume la mayor parte del tiempo en llamadas del sistema e infraestructura interna de canales de Go (`runtime.selectgo`, `kevent`). El costo del pre-drop check es imperceptible.
-* **Memoria:** Las allocations en Heap son exactamente **0 B/op** debido al desvío preventivo y la reutilización total de las instancias de Evento desde el pool y búferes locales.
+The analysis of CPU and memory profiles with `go tool pprof` for `BenchmarkBackpressureBuilderDropNewestFullQueue` reveals that:
+* **CPU:** Under saturation with drop, the CPU spends most of its time in system calls and Go's internal channel infrastructure (`runtime.selectgo`, `kevent`). The cost of the pre-drop check is imperceptible.
+* **Memory:** Heap allocations are exactly **0 B/op** due to preventive bypass and full reuse of Event instances from the pool and local buffers.
 
 ---
 
 ## Race Detector Summary
-* La suite completa de pruebas stress en concurrencia masiva ejecutada bajo `go test -race ./...` completó exitosamente con resultado **PASS** y **0 advertencias de carrera de datos (data races)**.
-* Se garantiza que la recolección de estadísticas (`Stats`) y los cambios de backpressure en caliente operan de forma thread-safe mediante operaciones atómicas en `sync/atomic`.
+* The complete stress test suite in massive concurrency executed under `go test -race ./...` completed successfully with a **PASS** result and **0 data race warnings**.
+* It is guaranteed that statistics gathering (`Stats`) and hot backpressure changes operate in a thread-safe manner using atomic operations in `sync/atomic`.
 
 ---
 
 ## Acceptance Criteria Status
-* **Políticas configurables de descarte:** Cumplido (DropNewest, BlockOnFull, DropOldest, DropDebugOnly).
-* **Evitar alocaciones previo al drop:** Cumplido (retorno nil preventivo en NewEvent).
-* **Soporte de estadísticas en caliente:** Cumplido (métodos Stats() y Dropped() thread-safe).
-* **Sincronización y apagado sin deadlocks:** Cumplido (drenaje de control unbloqueado en Close).
+* **Configurable drop policies:** Met (DropNewest, BlockOnFull, DropOldest, DropDebugOnly).
+* **Avoid allocations prior to drop:** Met (preventive nil return in NewEvent).
+* **Hot statistics support:** Met (thread-safe Stats() and Dropped() methods).
+* **Synchronization and shutdown without deadlocks:** Met (unblocked control draining in Close).
 
 ---
 
 ## Risks / Regressions
-* **Deuda Técnica de Mapas:** Los paths legacy de logs estructurados (`Log.Info(map[string]interface{})`) siguen haciendo alocaciones dinámicas e boxing antes de poder verificar si la cola está llena. Esto representa un costo menor y controlado, con planes de desuso total en v3.
+* **Map Technical Debt:** Legacy structured logging paths (`Log.Info(map[string]interface{})`) still make dynamic allocations and boxing before being able to verify if the queue is full. This represents a minor, controlled cost, with plans for complete deprecation in v3.
 
 ---
 
 ## Private Evidence References
-La evidencia de rendimiento cruda y perfiles generados localmente se encuentran almacenados y protegidos en:
-* `.private/reports/phase-05-private-evidence.md` (reporte de evidencia privado)
+Raw performance evidence and locally generated profiles are stored and protected in:
+* `.private/reports/phase-05-private-evidence.md` (private evidence report)
 * `.private/pprof/phase05_backpressure_cpu.pprof`
 * `.private/pprof/phase05_backpressure_mem.pprof`
 * `.private/bench/phase05_backpressure_bench_gmp1.txt`
@@ -144,6 +146,6 @@ La evidencia de rendimiento cruda y perfiles generados localmente se encuentran 
 ---
 
 ## Next Phase Recommendation
-Se recomienda declarar la **Fase 05** como completamente **finalizada y cerrada**.
-La siguiente fase planificada es:
-* **Fase 06 — Filesystem, permisos y rotación segura**
+It is recommended to declare **Phase 05** fully **completed and closed**.
+The next planned phase is:
+* **Phase 06 — Filesystem, permissions, and secure rotation**

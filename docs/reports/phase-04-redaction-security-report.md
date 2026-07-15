@@ -1,48 +1,50 @@
 # Phase 04 — Redaction and Sensitive Data Security Report
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 * **Date:** 2026-07-07
 * **Branch:** `dev`
 * **Commit:** `da9803e perf: implement append-only JSON encoder with benchmarks and fuzzing`
 * **Go version:** `go1.23.2 darwin/amd64`
 * **OS/Arch:** `darwin/amd64`
-* **Scope:** Diseño e integración de un sistema de redacción automática y explícita para datos sensibles en el hot path estructurado de Acacia.
+* **Scope:** Design and integration of an automatic and explicit redaction system for sensitive data in the structured hot path of Acacia.
 
 ---
 
 ## Objective
-Evitar fugas accidentales de secretos en logs estructurados (p. ej., tokens, contraseñas, cookies) mediante un mecanismo de redacción case-insensitive y normalizada de claves (sin allocations adicionales sobre el builder), sin hacer uso de reflexión ni expresiones regulares en el hot path.
+Prevent accidental leaks of secrets in structured logs (e.g., tokens, passwords, cookies) using a case-insensitive and normalized key redaction mechanism (without additional allocations on the builder), without using reflection or regular expressions on the hot path.
 
 ---
 
 ## Scope Decision
-* **Protegido:** El hot path de la nueva API Fluent/Builder estructurada tipada (`Event`). Todos los campos que utilicen el constructor tipado (como `Str`, `Int`, `Bool`, `Time`, `Dur`, y `ErrKey`) se benefician de la redacción automática y explícita de forma directa.
-* **Compatibilidad/Deuda Legacy:** El wrapper heredado en `internal/logging/wrapper.go` que emplea `redactRecursive` reflectivo se mantiene intacto para no romper a los clientes legacy. Su alto costo de CPU/memoria queda registrado bajo deuda técnica a extinguir cuando se remueva por completo el path legacy.
+* **Protected:** The hot path of the new typed structured Fluent/Builder API (`Event`). All fields using the typed builder (such as `Str`, `Int`, `Bool`, `Time`, `Dur`, and `ErrKey`) directly benefit from automatic and explicit redaction.
+* **Compatibility/Legacy Debt:** The legacy wrapper in `internal/logging/wrapper.go` that uses reflective `redactRecursive` remains intact to avoid breaking legacy clients. Its high CPU/memory cost is recorded under technical debt to be extinguished when the legacy path is completely removed.
 
 ---
 
 ## Redaction Design
-* **Redacción Explícita:** Se mantienen los métodos `Secret(key, val)` y `StrRedacted(key, val)` que sustituyen directamente el valor por `"[REDACTED]"` a nivel de bytes, sin allocations ni escaneos.
-* **Redacción Automática por Clave:** Cada llamada de campo tipado en `Event` intercepta la clave mediante una función interna ultrarrápida `isSensitiveKey(key)`. Si se detecta una clave sensible, se escribe inmediatamente `[REDACTED]` y se aborta la serialización del valor original.
-* **Normalización en pila sin allocations (key check zero-allocation):** La función `isSensitiveKey` normaliza la clave de forma case-insensitive y descarta caracteres separadores (`-`, `_`, `.`) en una variable local de pila (array de 64 bytes), evitando asignaciones de Heap.
+* **Explicit Redaction:** The `Secret(key, val)` and `StrRedacted(key, val)` methods are maintained, directly replacing the value with `"[REDACTED]"` at the byte level, without allocations or scanning.
+* **Automatic Redaction by Key:** Each typed field call in `Event` intercepts the key using an ultra-fast internal function `isSensitiveKey(key)`. If a sensitive key is detected, `[REDACTED]` is written immediately and serialization of the original value is aborted.
+* **Zero-Allocation Stack-Based Normalization (Zero-Allocation Key Check):** The `isSensitiveKey` function normalizes the key in a case-insensitive manner and discards separating characters (`-`, `_`, `.`) in a local stack variable (64-byte array), avoiding Heap allocations.
 
 ---
 
 ## Sensitive Key Policy
-Se protegen las siguientes palabras clave sensibles en cualquier combinación de mayúsculas/minúsculas y separadores:
+The following sensitive keywords are protected in any case combination and with any separators:
 * `authorization`, `cookie`, `set-cookie`, `token`, `access_token`, `refresh_token`, `password`, `passwd`, `pwd`, `api_key`, `private_key`, `client_secret`, `secret`, `bearer`, `jwt`, `session`, `session_id`, `csrf`, `xsrf`, `x-api-key`.
 
 ---
 
 ## Public API Impact
-* **Ningún cambio incompatible.** La API de v2.x no sufre modificaciones de firmas ni de comportamiento roto. Se incorporó `ErrKey(key, err)` en `Event` para soportar el mapeo de errores bajo claves sensibles personalizadas.
+* **No Incompatible Changes.** The v2.x API does not undergo signature modifications or broken behavior. `ErrKey(key, err)` was added in `Event` to support error mapping under custom sensitive keys.
 
 ---
 
 ## Files Changed
-* **acacia.go**: Adición del normalizador case-insensitive `isSensitiveKey`, el helper de formateo `appendRedactedField`, y la integración del filtro automático en todos los métodos de campo estructurado de `Event`.
-* **test/phase04_redaction_test.go**: Suite de pruebas de conformidad unitaria.
-* **test/phase04_redaction_benchmark_test.go**: Suite de benchmarks de redacción.
-* **test/phase04_redaction_fuzz_test.go**: Suite de fuzzing ofensivo de inyección y detección de bypasses.
+* **acacia.go**: Addition of the case-insensitive normalizer `isSensitiveKey`, the formatting helper `appendRedactedField`, and the integration of the automatic filter in all structured field methods of `Event`.
+* **test/phase04_redaction_test.go**: Unit conformity test suite.
+* **test/phase04_redaction_benchmark_test.go**: Redaction benchmark suite.
+* **test/phase04_redaction_fuzz_test.go**: Offensive fuzzing suite for injection and bypass detection.
 
 ---
 
@@ -50,8 +52,8 @@ Se protegen las siguientes palabras clave sensibles en cualquier combinación de
 
 | Command | Result | Notes |
 |---|---:|---|
-| `go test ./...` | **PASS** | Suite de pruebas Acacia en verde. |
-| `go test -race ./...` | **PASS** | Sin condiciones de carrera. |
+| `go test ./...` | **PASS** | Acacia test suite passes. |
+| `go test -race ./...` | **PASS** | No race conditions. |
 
 ---
 
@@ -59,10 +61,10 @@ Se protegen las siguientes palabras clave sensibles en cualquier combinación de
 
 | Target | Result | Notes |
 |---|---:|---|
-| `FuzzRedactionSensitiveKeysNoLeak` | **PASS** | Valida que ninguna variante de clave sensible fugue su valor. |
-| `FuzzRedactionKeyVariantsNoBypass` | **PASS** | Valida que normalizaciones hostiles no burlen el redactor. |
-| `FuzzRedactionMixedTypesNoLeak` | **PASS** | Valida que tipos no-string (Int, Bool, etc.) se redacten de forma segura. |
-| `FuzzRedactionNonSensitivePreserved` | **PASS** | Valida que los datos regulares no sensibles no sufran alteraciones. |
+| `FuzzRedactionSensitiveKeysNoLeak` | **PASS** | Validates that no sensitive key variant leaks its value. |
+| `FuzzRedactionKeyVariantsNoBypass` | **PASS** | Validates that hostile normalizations do not bypass the redactor. |
+| `FuzzRedactionMixedTypesNoLeak` | **PASS** | Validates that non-string types (Int, Bool, etc.) are securely redacted. |
+| `FuzzRedactionNonSensitivePreserved` | **PASS** | Validates that regular non-sensitive data remains unaltered. |
 
 ---
 
@@ -71,54 +73,54 @@ Se protegen las siguientes palabras clave sensibles en cualquier combinación de
 ### GOMAXPROCS=1
 | Benchmark | ns/op | B/op | allocs/op | Compared To | Notes |
 |---|---:|---:|---:|---|---|
-| `BenchmarkRedactionDisabledLevel` | 16.3 ns | 0 B | 0 | `Fase 03` | Cero allocations |
-| `BenchmarkRedactionExplicitSecret` | 634.3 ns | 282 B | 1 | `Fase 03` | Sin costo adicional |
-| `BenchmarkRedactionAutoSensitiveStr` | 647.5 ns | 219 B | 1 | `Fase 03` | Detección automática en 1 alloc |
-| `BenchmarkRedactionAutoSensitiveMixed` | 736.5 ns | 284 B | 1 | `Fase 03` | Redacta 4 claves en 1 alloc |
-| `BenchmarkRedactionNonSensitiveStr` | 641.0 ns | 231 B | 1 | `Fase 03` | Path normal sin penalización |
-| `BenchmarkRedactionKeyCheckSensitive` | 18.0 ns | 0 B | 0 | - | Sin alocaciones |
-| `BenchmarkRedactionKeyCheckNonSensitive`| 19.2 ns | 0 B | 0 | - | Sin alocaciones |
-| `BenchmarkRedactionManyFields` | 768.9 ns | 234 B | 1 | - | Reutilización de búferes |
+| `BenchmarkRedactionDisabledLevel` | 16.3 ns | 0 B | 0 | `Phase 03` | Zero allocations |
+| `BenchmarkRedactionExplicitSecret` | 634.3 ns | 282 B | 1 | `Phase 03` | No additional cost |
+| `BenchmarkRedactionAutoSensitiveStr` | 647.5 ns | 219 B | 1 | `Phase 03` | Automatic detection in 1 alloc |
+| `BenchmarkRedactionAutoSensitiveMixed` | 736.5 ns | 284 B | 1 | `Phase 03` | Redacts 4 keys in 1 alloc |
+| `BenchmarkRedactionNonSensitiveStr` | 641.0 ns | 231 B | 1 | `Phase 03` | Normal path without penalty |
+| `BenchmarkRedactionKeyCheckSensitive` | 18.0 ns | 0 B | 0 | - | No allocations |
+| `BenchmarkRedactionKeyCheckNonSensitive`| 19.2 ns | 0 B | 0 | - | No allocations |
+| `BenchmarkRedactionManyFields` | 768.9 ns | 234 B | 1 | - | Buffer reuse |
 
 ### GOMAXPROCS=2
 | Benchmark | ns/op | B/op | allocs/op | Compared To | Notes |
-|---|---:|---:|---:|---|---|
-| `BenchmarkRedactionDisabledLevel` | 21.4 ns | 0 B | 0 | `Fase 03` | Descarte rápido |
-| `BenchmarkRedactionExplicitSecret` | 727.1 ns | 246 B | 1 | `Fase 03` | Sin impacto de memoria |
-| `BenchmarkRedactionAutoSensitiveStr` | 791.1 ns | 245 B | 1 | `Fase 03` | 1 alocación única |
-| `BenchmarkRedactionAutoSensitiveMixed` | 806.6 ns | 225 B | 1 | `Fase 03` | 1 alocación única |
-| `BenchmarkRedactionNonSensitiveStr` | 993.6 ns | 233 B | 1 | `Fase 03` | 1 alocación única |
+|---|---|---:|---:|---|---|
+| `BenchmarkRedactionDisabledLevel` | 21.4 ns | 0 B | 0 | `Phase 03` | Fast discard |
+| `BenchmarkRedactionExplicitSecret` | 727.1 ns | 246 B | 1 | `Phase 03` | No memory impact |
+| `BenchmarkRedactionAutoSensitiveStr` | 791.1 ns | 245 B | 1 | `Phase 03` | 1 single allocation |
+| `BenchmarkRedactionAutoSensitiveMixed` | 806.6 ns | 225 B | 1 | `Phase 03` | 1 single allocation |
+| `BenchmarkRedactionNonSensitiveStr` | 993.6 ns | 233 B | 1 | `Phase 03` | 1 single allocation |
 
 ---
 
 ## Legacy Redaction Status
-* La función `redactRecursive` del wrapper legacy (que consume **22 alocaciones** y **980 B/op** debido al uso extensivo de reflexión y mapeo dinámico) permanece en **`internal/logging/wrapper.go`** para sostener retrocompatibilidad, pero su uso no es recomendado en el hot path de alto rendimiento.
+* The `redactRecursive` function of the legacy wrapper (which consumes **22 allocations** and **980 B/op** due to extensive use of reflection and dynamic mapping) remains in **`internal/logging/wrapper.go`** to support backward compatibility, but its use is not recommended on the high-performance hot path.
 
 ---
 
 ## pprof Summary
-El perfilador de asignaciones para la redacción automatizada muestra que:
-* La llamada `isSensitiveKey` no registra uso de memoria en Heap (**0 B/op**).
-* Todo el Heap asignado corresponde al puntero genérico de `sync.Pool` devuelto en `NewEvent`.
-* En la comparación directa de redacción mixta:
-  * **Legacy (`BenchmarkVector2Redact`):** Asigna 1.96 GB de Heap acumulado en perfiles.
-  * **New (`BenchmarkRedactionAutoSensitiveMixed`):** Asigna 0.67 GB de Heap acumulado (65% menos memoria asignada y 22x menos alocaciones netas).
+The allocation profiler for automated redaction shows that:
+* The `isSensitiveKey` call registers no Heap memory usage (**0 B/op**).
+* The entire allocated Heap corresponds to the generic `sync.Pool` pointer returned in `NewEvent`.
+* In the direct comparison of mixed redaction:
+  * **Legacy (`BenchmarkVector2Redact`):** Allocates 1.96 GB of accumulated Heap in profiles.
+  * **New (`BenchmarkRedactionAutoSensitiveMixed`):** Allocates 0.67 GB of accumulated Heap (65% less allocated memory and 22x fewer net allocations).
 
 ---
 
 ## Hot Path Restrictions Check
-El camino de redacción estructurada tipada:
-* **¿Utiliza reflect?** **NO**.
-* **¿Utiliza regexp?** **NO**.
-* **¿Utiliza strings.ToLower con allocation?** **NO**.
-* **¿Utiliza fmt.Sprint/fmt.Sprintf?** **NO**.
-* **¿Utiliza encoding/json.Marshal?** **NO**.
-* **¿Utiliza map[string]interface{}?** **NO**.
+The typed structured redaction path:
+* **Does it use reflect?** **NO**.
+* **Does it use regexp?** **NO**.
+* **Does it use strings.ToLower with allocation?** **NO**.
+* **Does it use fmt.Sprint/fmt.Sprintf?** **NO**.
+* **Does it use encoding/json.Marshal?** **NO**.
+* **Does it use map[string]interface{}?** **NO**.
 
 ---
 
 ## Security Findings
-* **Ninguno.** No se detectaron vulnerabilidades ni fugas (*bypasses*) tras la ejecución completa del motor de fuzzing.
+* **None.** No vulnerabilities or leaks (*bypasses*) were detected after the complete execution of the fuzzing engine.
 
 ---
 
@@ -126,15 +128,15 @@ El camino de redacción estructurada tipada:
 
 | Criterion | Status | Evidence |
 |---|---|---|
-| Redacción inline sin allocations adicionales sobre el builder | **CUMPLIDO** | `isSensitiveKey` retorna 0 allocs/op; el flujo completo del builder mantiene 1 alloc/op por `sync.Pool`. |
-| Denylist insensible a case/separadores sin Heap | **CUMPLIDO** | `isSensitiveKey` retorna 0 allocs/op. |
-| Redacción automática para tipos no-string | **CUMPLIDO** | Validado en `TestRedactionMixedTypes`. |
-| Fuzzing ofensivo completo en verde | **CUMPLIDO** | Fuzzing de bypass y no fuga completado. |
+| Inline redaction without additional allocations on the builder | **FULFILLED** | `isSensitiveKey` returns 0 allocs/op; the complete builder flow maintains 1 alloc/op via `sync.Pool`. |
+| Case/separator-insensitive denylist without Heap usage | **FULFILLED** | `isSensitiveKey` returns 0 allocs/op. |
+| Automatic redaction for non-string types | **FULFILLED** | Validated in `TestRedactionMixedTypes`. |
+| Complete offensive fuzzing in the green | **FULFILLED** | Bypass and leak fuzzing completed. |
 
 ---
 
 ## Risks / Regressions
-* **Diferencia de comportamiento:** El builder nuevo aplica redacción automática sobre las claves sensibles registradas de forma inmediata, mientras que la API legacy no implementa denylist automática por defecto (solo redacción recursiva opcional en mapas del wrapper). Esto se documenta y acepta como restricción de diseño de convivencia en v2.
+* **Behavioral Difference:** The new builder applies automatic redaction to registered sensitive keys immediately, whereas the legacy API does not implement an automatic denylist by default (only optional recursive redaction on wrapper maps). This is documented and accepted as a design constraint for coexistence in v2.
 
 ---
 
@@ -149,4 +151,4 @@ El camino de redacción estructurada tipada:
 ---
 
 ## Next Phase Recommendation
-Se recomienda avanzar a la **Fase 05 — Backpressure, cola y memoria** para rediseñar el canal de eventos asíncronos y resolver la contención por lock, permitiendo maximizar el rendimiento multitarea de Acacia.
+It is recommended to proceed to **Phase 05 — Backpressure, Queue, and Memory** to redesign the asynchronous event channel and resolve lock contention, allowing multitasking performance to be maximized in Acacia.

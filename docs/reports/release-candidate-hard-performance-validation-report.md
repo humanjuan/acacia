@@ -1,5 +1,7 @@
 # Release Candidate Hard Performance Validation Report
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 ## Objective
 The objective of this report is to document the results of the hard performance validation executed on a temporary SSD clone of the Acacia repository, assessing the stability, regression footprint, and overall safety of the Release Candidate (RC) prior to tagging.
 
@@ -83,4 +85,4 @@ The following table summarizes the performance metrics comparing the baseline `v
 - No final release or tag is recommended without the explicit decision of the maintainer.
 
 ## Next Step
-- Proceed to **Fase 09 — Performance Recovery, Architecture Review & OpenTelemetry Compatibility** to isolate, diagnose, and optimize these regressions before finalizing the release.
+- Proceed to **Phase 09 — Performance Recovery, Architecture Review & OpenTelemetry Compatibility** to isolate, diagnose, and optimize these regressions before finalizing the release.

@@ -1,5 +1,7 @@
 # Security Finding
 
+*This is a historical engineering report. The filename is kept for audit continuity.*
+
 ## Finding ID: SEC-07-003
 
 ### Metadata
@@ -9,13 +11,13 @@
 - **Status:** Remediated
 
 ### Vulnerability Description
-El logger asíncrono no garantizaba el vaciado (drain) completo de los eventos de log que habían sido formalmente aceptados en el buffer/cola de Acacia antes de finalizar el cierre del archivo físico. Esto ocurría porque la rutina del escritor finalizaba precipitadamente cuando se cerraba el canal sin asegurar el procesamiento del remanente encolado de forma secuencial.
+The asynchronous logger did not guarantee the complete draining (flush) of log events that had been formally accepted into Acacia's buffer/queue before completing the closure of the physical file. This occurred because the writer routine terminated prematurely when the channel was closed, without ensuring the sequential processing of the remaining queued logs.
 
 ### Impact
-Pérdida silenciosa de registros críticos de auditoría y trazas de diagnóstico de la fase de cierre de la aplicación. Esto es crítico en auditorías de seguridad, ya que los logs previos al apagado inmediato (ej. trazas de errores fatales, alertas de intrusión, desconexión de servicios) se perdían de forma irreversible.
+Silent loss of critical audit records and diagnostic traces from the application shutdown phase. This is critical for security audits, as logs immediately preceding a shutdown (e.g., fatal error traces, intrusion alerts, service disconnection messages) were irreversibly lost.
 
 ### Code Snippet Reference
-Antes de la corrección:
+Before the fix:
 ```go
 		case ev, ok := <-_log.events:
 			if !ok {
@@ -25,9 +27,9 @@ Antes de la corrección:
 ```
 
 ### Proof of Concept (PoC)
-1. Encolar 50 mensajes de log identificables.
-2. Llamar inmediatamente a `lg.Close()`.
-3. Validar el archivo físico resultante y notar que solo se escribieron una parte de las 50 líneas, perdiendo silenciosamente los eventos finales.
+1. Queue 50 identifiable log messages.
+2. Immediately call `lg.Close()`.
+3. Validate the resulting physical file and notice that only a portion of the 50 lines were written, silently losing the final events.
 
 ### Remediation Plan
-Se implementó un protocolo de drenaje determinista dentro del manejador de la señal `isClose` del canal de control. El escritor asíncrono ejecuta un bucle de lectura selectiva no bloqueante sobre `_log.events` hasta vaciar completamente todos los elementos presentes en la cola antes de proceder con el `flush` final y el `f.Close()` físico del archivo descriptor.
+A deterministic draining protocol was implemented within the handler for the `isClose` signal from the control channel. The asynchronous writer executes a non-blocking selective read loop over `_log.events` to completely drain all elements currently in the queue before proceeding with the final `flush` and the physical `f.Close()` of the file descriptor.
