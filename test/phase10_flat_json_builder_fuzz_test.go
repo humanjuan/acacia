@@ -35,12 +35,28 @@ func FuzzPhase10FlatJSONStringEscaping(f *testing.F) {
 		// Clean the log file between fuzz iterations
 		os.WriteFile(logPath, []byte{}, 0644)
 
+		normalized := normalizeKey(key)
+		isSensitive := false
+		switch normalized {
+		case "authorization", "authorizationheader", "cookie", "setcookie", "token", "accesstoken", "refreshtoken",
+			"password", "passwd", "pwd", "apikey", "privatekey", "clientsecret", "secret",
+			"bearer", "jwt", "session", "sessionid", "csrf", "xsrf", "xapikey":
+			isSensitive = true
+		}
+
+		valToLog := val
+		secretProbe := ""
+		if isSensitive {
+			secretProbe = "FUZZ_SECRET_MARKER_" + val
+			valToLog = secretProbe
+		}
+
 		event := logger.InfoEvent()
 		if event == nil {
 			return
 		}
 
-		event.Str(key, val).Msg("fuzz")
+		event.Str(key, valToLog).Msg("fuzz")
 		logger.Sync()
 
 		data, err := os.ReadFile(logPath)
@@ -64,21 +80,10 @@ func FuzzPhase10FlatJSONStringEscaping(f *testing.F) {
 			t.Fatalf("raw CRLF detected inside log line: %q", line)
 		}
 
-		// Check redaction if key is sensitive
-		// We normalize key to see if it should have been redacted
-		normalized := normalizeKey(key)
-		isSensitive := false
-		switch normalized {
-		case "authorization", "cookie", "setcookie", "token", "accesstoken", "refreshtoken",
-			"password", "passwd", "pwd", "apikey", "privatekey", "clientsecret", "secret",
-			"bearer", "jwt", "session", "sessionid", "csrf", "xsrf", "xapikey":
-			isSensitive = true
-		}
-
-		if isSensitive && len(val) > 0 {
+		if isSensitive {
 			// If it's sensitive, the original value should not be in the output
-			if strings.Contains(line, val) && val != "[REDACTED]" {
-				t.Fatalf("sensitive value leaked in JSON output: key=%q, val=%q, line=%s", key, val, line)
+			if strings.Contains(line, secretProbe) {
+				t.Fatalf("sensitive value leaked in JSON output: key=%q, val=%q, line=%s", key, secretProbe, line)
 			}
 		}
 	})

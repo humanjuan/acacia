@@ -35,13 +35,27 @@ func FuzzPhase10ObjectBuilderEscapingAndRedaction(f *testing.F) {
 		// Clean the log file
 		os.WriteFile(logPath, []byte{}, 0644)
 
+		normalizedInner := normalizeObjectKey(innerKey)
+		isInnerSensitive := isSensitiveKeyString(normalizedInner)
+
+		normalizedObj := normalizeObjectKey(objKey)
+		isObjSensitive := isSensitiveKeyString(normalizedObj)
+
+		valToLog := innerVal
+		secretProbe := ""
+		shouldRedact := isObjSensitive || isInnerSensitive
+		if shouldRedact {
+			secretProbe = "FUZZ_SECRET_MARKER_" + innerVal
+			valToLog = secretProbe
+		}
+
 		event := logger.InfoEvent()
 		if event == nil {
 			return
 		}
 
 		event.Object(objKey, func(o *acacia.Object) {
-			o.Str(innerKey, innerVal)
+			o.Str(innerKey, valToLog)
 		}).Msg("fuzz")
 		logger.Sync()
 
@@ -65,24 +79,9 @@ func FuzzPhase10ObjectBuilderEscapingAndRedaction(f *testing.F) {
 			t.Fatalf("raw CRLF detected inside log line: %q", line)
 		}
 
-		// Check redaction if innerKey or objKey is sensitive
-		normalizedInner := normalizeObjectKey(innerKey)
-		isInnerSensitive := isSensitiveKeyString(normalizedInner)
-
-		normalizedObj := normalizeObjectKey(objKey)
-		isObjSensitive := isSensitiveKeyString(normalizedObj)
-
-		if isObjSensitive && len(innerVal) > 0 {
-			// The entire object is redacted
-			if strings.Contains(line, innerVal) && innerVal != "[REDACTED]" {
-				t.Fatalf("sensitive value leaked under sensitive object key: objKey=%q, innerVal=%q, line=%s", objKey, innerVal, line)
-			}
-		}
-
-		if isInnerSensitive && len(innerVal) > 0 {
-			// The inner field should be redacted
-			if strings.Contains(line, innerVal) && innerVal != "[REDACTED]" {
-				t.Fatalf("sensitive inner value leaked: innerKey=%q, innerVal=%q, line=%s", innerKey, innerVal, line)
+		if shouldRedact {
+			if strings.Contains(line, secretProbe) {
+				t.Fatalf("sensitive value leaked: objKey=%q, innerKey=%q, secretProbe=%q, line=%s", objKey, innerKey, secretProbe, line)
 			}
 		}
 	})
@@ -111,7 +110,7 @@ func normalizeObjectKey(key string) string {
 
 func isSensitiveKeyString(normalized string) bool {
 	switch normalized {
-	case "authorization", "cookie", "setcookie", "token", "accesstoken", "refreshtoken",
+	case "authorization", "authorizationheader", "cookie", "setcookie", "token", "accesstoken", "refreshtoken",
 		"password", "passwd", "pwd", "apikey", "privatekey", "clientsecret", "secret",
 		"bearer", "jwt", "session", "sessionid", "csrf", "xsrf", "xapikey":
 		return true

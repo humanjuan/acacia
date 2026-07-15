@@ -40,13 +40,13 @@ Fase 10 — Structured JSON Maturity
 Current status:
 
 ```text
-In Progress / Documenting Structured JSON builder adoption
+In Progress / Running Phase 10 integration gate
 ```
 
 Next action:
 
 ```text
-Review Sprint 10.8 Documentation and Examples, then decide whether to proceed to Sprint 10.9 — Integration Gate.
+Review Sprint 10.9 Integration Gate, then decide whether to proceed to Final SSD Hard Validation.
 ```
 
 Summary of Phase 09 results:
@@ -290,17 +290,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review Sprint 10.8 Documentation and Examples, then decide whether to proceed to Sprint 10.9 — Integration Gate.
+Review Sprint 10.9 Integration Gate, then decide whether to proceed to Final SSD Hard Validation.
 ```
 
 Recommended commit message:
 
 ```text
-docs: add structured JSON builder guides and examples
+test: run Phase 10 structured JSON integration gate
 ```
 
 After that:
 
 ```text
-Decide whether to proceed to Sprint 10.9 — Integration Gate.
+Decide whether to proceed to Final SSD Hard Validation.
 ```

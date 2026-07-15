@@ -29,13 +29,26 @@ func FuzzPhase10RecursiveRedactionAuditSensitiveKeys(f *testing.F) {
 		}
 		defer logger.Close()
 
+		isExternalSensitive := isSensitiveKeyAuditFuzz(key)
+		isNestedSensitive := isSensitiveKeyAuditFuzz(nestedKey)
+		isPrefixSensitive := isSensitiveKeyAuditFuzz(prefix)
+
+		shouldRedact := isExternalSensitive || (useNamespace && isPrefixSensitive) || (useNamespace && isNestedSensitive) || (!useNamespace && !useAny && isExternalSensitive) || (useAny && isNestedSensitive)
+
+		valToLog := value
+		secretProbe := ""
+		if shouldRedact {
+			secretProbe = "FUZZ_SECRET_MARKER_" + value
+			valToLog = secretProbe
+		}
+
 		event := logger.InfoEvent()
 
 		if useAny {
 			payload := map[string]interface{}{
-				nestedKey: value,
+				nestedKey: valToLog,
 				"nested": map[string]interface{}{
-					nestedKey: value,
+					nestedKey: valToLog,
 				},
 			}
 			if useObject {
@@ -49,20 +62,20 @@ func FuzzPhase10RecursiveRedactionAuditSensitiveKeys(f *testing.F) {
 			if useObject {
 				event.Object("obj", func(o *acacia.Object) {
 					o.Namespace(prefix, func(n *acacia.Namespace) {
-						n.Str(nestedKey, value)
+						n.Str(nestedKey, valToLog)
 					})
 				})
 			} else {
 				event.Namespace(prefix, func(n *acacia.Namespace) {
-					n.Str(nestedKey, value)
+					n.Str(nestedKey, valToLog)
 				})
 			}
 		} else if useObject {
 			event.Object("obj", func(o *acacia.Object) {
-				o.Str(key, value)
+				o.Str(key, valToLog)
 			})
 		} else {
-			event.Str(key, value)
+			event.Str(key, valToLog)
 		}
 
 		event.Msg("msg")
@@ -99,26 +112,9 @@ func FuzzPhase10RecursiveRedactionAuditSensitiveKeys(f *testing.F) {
 			t.Fatalf("raw carriage return found in log line: %q", line)
 		}
 
-		// 4. Redaction check if key or nestedKey is sensitive in typed builder/Any
-		isExternalSensitive := isSensitiveKeyAuditFuzz(key)
-		isNestedSensitive := isSensitiveKeyAuditFuzz(nestedKey)
-		isPrefixSensitive := isSensitiveKeyAuditFuzz(prefix)
-
-		var m map[string]interface{}
-		if err := json.Unmarshal([]byte(line), &m); err != nil {
-			t.Fatalf("unmarshal failed: %v", err)
-		}
-
-		// We check if value is present in the final raw output.
-		// If it's supposed to be redacted, value (if not empty and not matching default redact sentinel) must not leak
-		if value != "" && value != "[REDACTED]" && !strings.Contains(value, "_acacia_error") {
-			// If external key or prefix is sensitive, it should redact
-			shouldRedact := isExternalSensitive || (useNamespace && isPrefixSensitive) || (useNamespace && isNestedSensitive) || (!useNamespace && !useAny && isExternalSensitive) || (useAny && isNestedSensitive)
-
-			if shouldRedact {
-				if strings.Contains(line, value) {
-					t.Fatalf("leak detected for sensitive input: value=%q, line=%s", value, line)
-				}
+		if shouldRedact {
+			if strings.Contains(line, secretProbe) {
+				t.Fatalf("leak detected for sensitive input: secretProbe=%q, line=%s", secretProbe, line)
 			}
 		}
 	})
