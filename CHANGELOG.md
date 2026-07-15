@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased] (v2.x Candidate)
 
 ### Added
+* **Phase 10 Structured JSON Builders:** Fully integrated structured builders: `Object` for nesting, `Array` for records, `Group` for semantic scopes, and `Namespace` for flat prefixed key scopes.
+* **Pre-serialized RawJSON:** Support for injecting pre-serialized JSON bytes (`RawJSON`) as trusted input only, with CR/LF compaction fallback.
+* **Any Slow Fallback:** Dynamic `interface{}` fallback (`Any`) for un-typed values with recursive best-effort redaction, and cyclic reference / non-serializable safety limits.
+* **Recursive Redaction Audit:** Fully audited and hardened recursive case-insensitive redaction matching family variants (e.g. `authorization_header` / `authorizationheader`).
 * **Typed Builder API:** Introduced a fluent builder API (`InfoEvent`, `WarnEvent`, `ErrorEvent`, `DebugEvent`, `CriticalEvent`, `Event`) for structured logging with lower and predictable allocation behavior compared to the legacy map/interface path.
 * **Sensitive Data Redaction:** Native redaction of sensitive credentials and tokens via key-matching (e.g. "password", "token") or explicit builders (`Secret`, `StrRedacted`).
 * **Explicit Backpressure Policies:** Configurable queuing behaviors under congestion (`DropNewest`, `BlockOnFull`, `DropOldest`, `DropDebugOnly`).

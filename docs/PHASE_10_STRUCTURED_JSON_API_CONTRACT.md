@@ -210,3 +210,24 @@ Se audita la redacción recursiva (Case-Insensitive y libre de separadores `-`, 
 - **Seguridad Concurrente**: Los builders de eventos (`*Event`, `*Object`, `*Array`) **no son thread-safe**. Deben utilizarse de manera secuencial dentro de una sola goroutine.
 - **Reutilización**: Una vez invocado `Msg()` o `Send()`, el builder queda liberado y no debe volver a referenciarse.
 - **Punteros Retenidos**: Las funciones de callback no deben almacenar o conservar referencias a `*Object` o `*Array` fuera del contexto del callback de ejecución.
+
+---
+
+## 10. Current Phase 10 API Surface
+
+Implemented:
+- Flat typed fields on `Event`.
+- `Object` on `Event` and `Object`.
+- `Array` on `Event` and `Object`.
+- `Group` on `Event` and `Object`.
+- `Namespace` on `Event` and `Object`.
+- `RawJSON` on `Event` and `Object`.
+- `Any` on `Event` and `Object`.
+
+Deferred:
+- nested arrays;
+- `Array.RawJSON`;
+- `Namespace.RawJSON`;
+- `Array.Any`;
+- `Namespace.Any`;
+- OpenTelemetry adapter.

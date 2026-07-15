@@ -30,6 +30,10 @@ Para proteger la integridad del proyecto y de la infraestructura local:
   * [ADR 0002: Requisitos de Reproducibilidad en Claims de Rendimiento](adr/0002-performance-claims-must-be-reproducible.md)
   * [ADR 0003: Opciones de Arquitectura para la Recuperación de Performance](adr/0003-acacia-performance-recovery-architecture-options.md)
   * [ADR 0004: Madurez de JSON Estructurado](adr/0004-structured-json-maturity.md)
+* Guías de JSON Estructurado (guides/):
+  * [Guía de Uso del Builder JSON Estructurado](guides/structured-json-builder.md): Manual de referencia de las APIs estructuradas.
+  * [Guía de Política de Redacción](guides/structured-json-redaction.md): Reglas de redacción de datos sensibles y fronteras de seguridad.
+  * [Guía de Migración de Clientes](guides/structured-json-migration.md): Cómo migrar mapas y arreglos dinámicos al builder tipado.
 * [Reportes de Ejecución](reports/):
   * [Reporte de Fase 00: Organización del Repositorio](reports/phase-00-repo-organization-report.md)
   * [Reporte de Validación Hard de Performance del Release Candidate](reports/release-candidate-hard-performance-validation-report.md)
@@ -43,6 +47,6 @@ Para proteger la integridad del proyecto y de la infraestructura local:
   * [Runbook de Preparación para Release](runbooks/release-readiness-runbook.md)
  
 ## Estado Actual
-* **Fase Activa:** `Fase 10 — Structured JSON Maturity` (Propuesta / definición de roadmap).
-* **Próxima Fase:** `Sprint 10.1 — Flat JSON Builder Hardening.`
+* **Fase Activa:** `Fase 10 — Structured JSON Maturity` (Documentando la adopción y endurecimiento de builders).
+* **Próxima Fase:** `Sprint 10.9 — Integration Gate.`
 

@@ -3,9 +3,9 @@
 
 # Acacia: High Performance Concurrent Logger for Go
 
-**Up to ~6M logs/sec | 0 allocs/op (hot path) | Zero‑loss barrier (Sync/Close) | Validated with go test -race**
+**High-performance concurrent logging | Typed structured JSON builder | Sync/Close semantics validated by documented tests**
 
-Acacia delivers zero‑allocation fast paths, rename-based secure file rotation, a zero‑loss Sync barrier, and a single‑writer architecture engineered for extreme concurrency. No dependencies. No magic. Just a human‑crafted logger that does its job exceptionally well.
+Acacia delivers documented low-allocation fast paths, rename-based secure file rotation, a Sync/Close barrier for accepted events under documented semantics, and a single‑writer architecture engineered for extreme concurrency. No dependencies. No magic. Just a human‑crafted logger that does its job exceptionally well.
 
 ---
 
@@ -24,8 +24,8 @@ And because software made by humans, with care, should feel human too.
 
 # Key Features
 
-### **Zero-allocation fast path**
-Plain `string` and `[]byte` logging achieve **0 allocs/op** on the hot path. This makes Acacia one of the most allocation-efficient loggers in the Go ecosystem.
+### **Allocation-conscious fast path**
+Plain `string` and `[]byte` logging have shown **0 allocs/op** in documented hot-path benchmarks. This makes Acacia allocation-conscious fast paths for high-throughput Go services.
 
 ### **Fluent Builder API**
 Structured logging via a type-safe builder pattern (`InfoEvent`, `WarnEvent`, etc.) avoiding dynamic maps or reflection overhead in the hot path.
@@ -42,7 +42,7 @@ Checks file basenames to prevent directory traversal, rejects base directory sym
 ### **Deterministic Sync & Close**
 `logger.Close()` shuts down the logger idempotently, draining all accepted events in the queue to disk, while post-close operations fail safely without panics or locks.
 
-### **Race-free Concurrency**
+### **Race detector suite passed under documented tests**
 Passes `go test -race` cleanly, verified under extreme parallel load.
 
 ---
@@ -71,7 +71,7 @@ func main() {
     log, err := acacia.Start("app.log", "./logs", acacia.Level.INFO)
     if err != nil { panic(err) }
 
-    // Guarantees all enqueued messages are flushed and synced, and closes cleanly
+    // Flushes accepted/enqueued messages according to the documented Close semantics, and closes cleanly
     defer log.Close()
 
     log.Info("Hello, this is a plain text log with %d parameters", 42)
@@ -80,19 +80,67 @@ func main() {
 
 ---
 
-### 2. Fluent Builder API (Structured Logging)
+### 2. Structured JSON Builder
 
-Structured logging in Acacia uses a fluent type-safe API to minimize heap allocations:
+Acacia provides a typed structured JSON builder for high-frequency logging paths.
 
+Recommended fast paths:
+- flat fields with `InfoEvent().Str(...).Int(...).Msg(...)`;
+- nested objects with `Object`;
+- arrays with primitive values and object elements;
+- groups as semantic aliases for objects;
+- namespaces for flat prefixed keys.
+
+Convenience / slow paths:
+- `RawJSON` for trusted pre-serialized JSON;
+- `Any` as explicit slow fallback for dynamic values;
+- legacy `StructuredJSON(true)` map path for compatibility.
+
+#### Flat Fields Example
 ```go
-// Recommended for structured logging
-log.InfoEvent().
-    Str("component", "gateway").
-    Int("status_code", 200).
+lg.InfoEvent().
+    Str("service", "payments").
+    Int("status", 200).
     Bool("cache_hit", true).
-    Msg("API request processed")
+    Msg("request completed")
 ```
-*Note: This path avoids using `map[string]interface{}` or reflection, keeping CPU overhead minimal.*
+
+#### Nested Object Example
+```go
+lg.InfoEvent().
+    Object("user", func(u *acacia.Object) {
+        u.Str("id", "u_123")
+        u.Str("country", "CL")
+    }).
+    Msg("user loaded")
+```
+
+#### Array Example
+```go
+lg.InfoEvent().
+    Array("items", func(a *acacia.Array) {
+        a.Object(func(i *acacia.Object) {
+            i.Str("sku", "ABC")
+            i.Int("qty", 2)
+        })
+        a.Str("manual-note")
+    }).
+    Msg("cart evaluated")
+```
+
+#### Redaction Example
+```go
+lg.InfoEvent().
+    Str("password", "secret").
+    Str("authorization_header", "Bearer token").
+    Msg("credentials checked")
+```
+Sensitive keys such as `password` and `authorization_header` are automatically redacted to `"[REDACTED]"` under the audited suite.
+
+For detailed guides, please see:
+* [Structured JSON Builder Guide](docs/guides/structured-json-builder.md)
+* [Redaction Policy Guide](docs/guides/structured-json-redaction.md)
+* [Migration Strategy Guide](docs/guides/structured-json-migration.md)
 
 ---
 
@@ -186,26 +234,29 @@ std.Println("Line printed via stdlib log")
 
 # Performance Claims and Scope
 
-Acacia is designed for extreme performance. Below are representative benchmarks:
+Acacia is designed with low allocation overhead in mind. Below are representative documented benchmarks:
+
+> [!NOTE]
+> These metrics represent benchmark observations on developer environments and are environment-dependent. They do not constitute a final release validation. Final SSD hard validation remains pending.
 
 ### **String Hot-Path (GMP=2)**
-* **Single-threaded:** ~75-90 ns/op (**0 allocs/op**)
-* **Parallel:** ~130-160 ns/op (**0 allocs/op**)
+* **Single-threaded:** ~75-90 ns/op (**0 allocs/op observed**)
+* **Parallel:** ~130-160 ns/op (**0 allocs/op observed**)
 
 ### **Fluent Builder (GMP=2)**
-* **Structured mixed event:** ~1.3 µs/op (~1 alloc/op due to sync.Pool controls)
+* **Structured mixed event:** ~1.3 µs/op (~1 alloc/op observed under sync.Pool controls)
 
 ### **Lifecyle Ops (GMP=2)**
-* **Write after close:** ~18 ns/op (**0 allocs/op**)
-* **Sync after close:** ~0.6 ns/op (**0 allocs/op**)
+* **Write after close:** ~18 ns/op (**0 allocs/op observed**)
+* **Sync after close:** ~0.6 ns/op (**0 allocs/op observed**)
 
 ---
 
 # Performance Claim Boundaries
 
-1. **0 allocs/op is observed** in documented benchmarks for plain string fast path (`log.Info`), byte-path (`log.InfoBytes`), disabled levels, and post-close/drop paths.
+1. **0 allocs/op is observed** in documented benchmarks for plain string fast path (`log.Info`), byte-path (`log.InfoBytes`), disabled levels, and post-close/drop paths under local testing.
 2. **Legacy dynamic structured path** (`log.Info(map[string]interface{}{...})`) uses reflection and will perform heap allocations.
-3. **Builder API** maintains ultra-low allocation overhead by utilizing reusable JSON buffers from a pooled resource allocator.
+3. **Builder API** maintains low allocation overhead under developer tests by utilizing reusable JSON buffers from a pooled resource allocator.
 
 ---
 

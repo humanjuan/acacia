@@ -73,7 +73,8 @@ Integrate `Close()` and `Sync()` correctly into your application shutdown and pe
 func main() {
     log, _ := acacia.Start("app.log", "./logs", acacia.Level.INFO)
     
-    // Guarantees all enqueued messages are flushed and synced, and shuts down safely
+    // Flushes accepted/enqueued messages according to the documented Close semantics,
+    // then shuts down safely.
     defer log.Close()
 
     log.Info("Service started")
@@ -82,6 +83,18 @@ func main() {
     log.Sync()
 }
 ```
+
+### Structured JSON Builder Migration
+
+For high-frequency structured logs, prefer the typed builder over `map[string]interface{}`.
+The legacy structured map path remains for v2.x compatibility, but new code should prefer:
+- flat typed fields;
+- `Object` for nested objects;
+- `Array` for lists;
+- `Group` for semantic nested scopes;
+- `Namespace` for flat prefixed keys;
+- `RawJSON` only for trusted pre-redacted JSON;
+- `Any` only for low-frequency dynamic payloads.
 
 ---
 

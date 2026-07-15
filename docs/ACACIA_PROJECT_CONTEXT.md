@@ -40,13 +40,13 @@ Fase 10 — Structured JSON Maturity
 Current status:
 
 ```text
-In Progress / Implementing Structured JSON builders
+In Progress / Documenting Structured JSON builder adoption
 ```
 
 Next action:
 
 ```text
-Review Sprint 10.7 Recursive Redaction Audit, then decide whether to proceed to Sprint 10.8 — Documentation and Examples.
+Review Sprint 10.8 Documentation and Examples, then decide whether to proceed to Sprint 10.9 — Integration Gate.
 ```
 
 Summary of Phase 09 results:
@@ -290,17 +290,17 @@ When assisting this project:
 Current Next Action:
 
 ```text
-Review Sprint 10.7 Recursive Redaction Audit, then decide whether to proceed to Sprint 10.8 — Documentation and Examples.
+Review Sprint 10.8 Documentation and Examples, then decide whether to proceed to Sprint 10.9 — Integration Gate.
 ```
 
 Recommended commit message:
 
 ```text
-fix: harden recursive redaction across structured JSON builders
+docs: add structured JSON builder guides and examples
 ```
 
 After that:
 
 ```text
-Decide whether to proceed to Sprint 10.8 — Documentation and Examples.
+Decide whether to proceed to Sprint 10.9 — Integration Gate.
 ```

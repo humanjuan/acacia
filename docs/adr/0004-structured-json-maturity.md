@@ -137,3 +137,8 @@ During Sprint 10.4, Group and Namespace APIs were designed and implemented:
 - **Any Best-Effort**: Se re-verificó el comportamiento recursivo best-effort en tipos estructurados dinámicos sin compromisos absolutos de redacción perfecta.
 - **Legacy Map Path**: Documentado explícitamente para compatibilidad v2.x, señalando que la redacción en este camino depende del flujo reflectivo clásico de Acacia.
 
+## Decision Update — Sprint 10.8 Documentation and Examples
+- **Documentación de Adopción**: Se crearon guías técnicas dedicadas para el builder estructurado (`structured-json-builder.md`), la política de redacción de datos sensibles (`structured-json-redaction.md`) y la estrategia de migración (`structured-json-migration.md`).
+- **Ejemplos Compilables**: Se implementaron ejemplos listos para ejecutar bajo `examples/` que cubren el uso básico, anidamiento, alcances, redacción recursiva, RawJSON y el camino lento Any.
+- **Clarificación de Compromisos y Fronteras**: Se documentaron formalmente los límites de RawJSON (trusted input only) y Any (camino lento, best-effort), y se eliminaron claims absolutos de rendimiento.
+

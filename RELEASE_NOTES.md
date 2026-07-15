@@ -26,13 +26,21 @@ Lifecycle controls have been formalized around an atomic state machine:
 * **Log Durability:** Closing the logger ensures all accepted events in the queue are drained and synced to disk.
 * **No Panics:** Writing logs or calling `Sync()` after a logger is closed returns safely without blocking or triggering a panic.
 
+### 5. Advanced Structured JSON Builders (Phase 10)
+This candidate release adds the Phase 10 structured JSON controls currently implemented and documented:
+* **Nesting Controls:** Added `Object` for nested dictionaries and `Array` for record elements.
+* **Semantic Scopes:** Added `Group` (for JSON-nested namespaces) and `Namespace` (for flat prefixed keys, avoiding dynamic compound key concatenation).
+* **Flexible Fallbacks:** Added `RawJSON` (trusted pre-serialized input) and `Any` (slow path reflection-based dynamic fallback).
+* **Audited Redaction:** Conducted a comprehensive recursive redaction audit covering all structured builders (e.g. including case-insensitive `authorization_header`).
+
 ---
 
 ## Performance Reference
+These are representative documented benchmark observations, not final release validation. Final SSD hard validation remains pending.
 Under high concurrency benchmark runs on an Intel Core i7 processor:
-* **Plain string logging:** ~220 ns/op (**0 allocs/op**).
-* **Builder-based structured logging:** ~1.3 µs/op (~1 alloc/op).
-* **Write after close:** ~18 ns/op (**0 allocs/op**).
+* **Plain string logging:** ~220 ns/op (**0 allocs/op observed**).
+* **Builder-based structured logging:** ~1.3 µs/op (~1 alloc/op observed).
+* **Write after close:** ~18 ns/op (**0 allocs/op observed**).
 
 ---
 
